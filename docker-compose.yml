@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: lending_dg_postgres
+    environment:
+      POSTGRES_DB: lending
+      POSTGRES_USER: dg
+      POSTGRES_PASSWORD: dg
+    ports:
+      - "${PGPORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dg -d lending"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgdata:
