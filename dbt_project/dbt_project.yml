@@ -1,0 +1,31 @@
+name: lending_dg
+version: "1.0.0"
+config-version: 2
+profile: lending_dg
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  lending_dg:
+    staging:
+      +schema: staging
+      +materialized: table
+    marts:
+      +schema: marts
+      +materialized: table
+    dq:
+      +schema: dq
+      +materialized: table
+      +tags: ["dq"]
+
+data_tests:
+  lending_dg:
+    +store_failures: true
+    +schema: dq_failures
+
+flags:
+  send_anonymous_usage_stats: false

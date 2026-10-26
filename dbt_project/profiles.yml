@@ -1,0 +1,12 @@
+lending_dg:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('PGHOST', 'localhost') }}"
+      port: "{{ env_var('PGPORT', '5433') | int }}"
+      dbname: "{{ env_var('PGDATABASE', 'lending') }}"
+      user: "{{ env_var('PGUSER', 'dg') }}"
+      password: "{{ env_var('PGPASSWORD', 'dg') }}"
+      schema: public
+      threads: 4

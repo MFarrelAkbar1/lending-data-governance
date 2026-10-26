@@ -1,0 +1,234 @@
+version: 2
+
+models:
+  - name: dim_applicant
+    description: One row per applicant with cleaned demographics, employment and income. Built from stg_applications.
+    meta:
+      owner: Data Governance
+      data_owner: Loan Origination
+      refresh_frequency: on every raw reload
+      upstream_system: Home Credit (Kaggle extract)
+      source_table: application_train
+      contains_pii: true
+    columns:
+      - name: applicant_id
+        description: Application ID (raw SK_ID_CURR). Primary key.
+        meta: {classification: Confidential, pii: true}
+        data_tests:
+          - unique:
+              name: dim_applicant__id_unique
+              description: One row per applicant.
+              config: {severity: error, meta: {dq_dimension: uniqueness, rule_id: DIM_APPLICANT_ID_UNIQUE}}
+          - not_null:
+              name: dim_applicant__id_not_null
+              description: Applicant ID is always present.
+              config: {severity: error, meta: {dq_dimension: completeness, rule_id: DIM_APPLICANT_ID_NOT_NULL}}
+      - name: gender
+        description: M, F or NULL (unknown).
+        meta: {classification: Confidential, pii: true}
+      - name: age_years
+        description: Age in whole years at application.
+        meta: {classification: Confidential, pii: true}
+      - name: family_status
+        description: Family status, NULL when unknown.
+        meta: {classification: Confidential, pii: true}
+      - name: children_count
+        description: Number of children.
+        meta: {classification: Confidential, pii: true}
+      - name: family_members_count
+        description: Number of family members.
+        meta: {classification: Confidential, pii: true}
+      - name: education_type
+        description: Highest education level.
+        meta: {classification: Confidential, pii: true}
+      - name: income_type
+        description: Income type, for example Working, Pensioner.
+        meta: {classification: Confidential, pii: true}
+      - name: occupation_type
+        description: Occupation, NULL when not provided.
+        meta: {classification: Confidential, pii: true}
+      - name: organization_type
+        description: Employer organization type, NULL when unknown (raw XNA).
+        meta: {classification: Confidential, pii: true}
+      - name: employment_years
+        description: Years employed, NULL when raw DAYS_EMPLOYED was the placeholder.
+        meta: {classification: Confidential, pii: true}
+      - name: is_days_employed_placeholder
+        description: True when raw DAYS_EMPLOYED was 365243.
+        meta: {classification: Internal, pii: false}
+      - name: housing_type
+        description: Housing situation.
+        meta: {classification: Confidential, pii: true}
+      - name: owns_car
+        description: Client owns a car.
+        meta: {classification: Confidential, pii: true}
+      - name: owns_realty
+        description: Client owns a house or flat.
+        meta: {classification: Confidential, pii: true}
+      - name: region_rating_client
+        description: Home Credit rating of the client's region (1 to 3).
+        meta: {classification: Confidential, pii: true}
+      - name: income_total_amount
+        description: Declared total income.
+        meta: {classification: Restricted, pii: true}
+      - name: loaded_at
+        description: Load timestamp of the source row.
+        meta: {classification: Internal, pii: false}
+
+  - name: fct_loan_application
+    description: One row per current loan application with contract, amount and ratio fields plus counts of related bureau credits and previous applications.
+    meta:
+      owner: Data Governance
+      data_owner: Credit Risk
+      refresh_frequency: on every raw reload
+      upstream_system: Home Credit (Kaggle extract)
+      source_table: application_train
+      contains_pii: true
+    columns:
+      - name: applicant_id
+        description: Application ID. Primary key and FK to dim_applicant.
+        meta: {classification: Confidential, pii: true}
+        data_tests:
+          - unique:
+              name: fct_loan_application__id_unique
+              description: One row per application.
+              config: {severity: error, meta: {dq_dimension: uniqueness, rule_id: FCT_APP_ID_UNIQUE}}
+          - relationships:
+              name: fct_loan_application__applicant_exists
+              description: Every application has an applicant in dim_applicant.
+              arguments:
+                to: ref('dim_applicant')
+                field: applicant_id
+              config: {severity: error, meta: {dq_dimension: referential_integrity, rule_id: FCT_APP_APPLICANT_EXISTS}}
+      - name: contract_type
+        description: Cash loans or Revolving loans.
+        meta: {classification: Internal, pii: false}
+      - name: credit_amount
+        description: Credit amount of the loan.
+        meta: {classification: Restricted, pii: true}
+      - name: annuity_amount
+        description: Loan annuity.
+        meta: {classification: Restricted, pii: true}
+      - name: goods_price_amount
+        description: Price of the goods financed.
+        meta: {classification: Restricted, pii: true}
+      - name: income_total_amount
+        description: Declared total income.
+        meta: {classification: Restricted, pii: true}
+      - name: credit_to_income_ratio
+        description: Derived. credit_amount / income_total_amount.
+        meta: {classification: Restricted, pii: true}
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: fct_loan_application__credit_to_income_positive
+              description: Ratio is positive.
+              arguments:
+                min_value: 0
+                strictly: true
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: FCT_APP_RATIO_POSITIVE}}
+      - name: annuity_to_income_ratio
+        description: Derived. annuity_amount / income_total_amount.
+        meta: {classification: Restricted, pii: true}
+      - name: target_default_flag
+        description: 1 if the client had payment difficulties on the loan.
+        meta: {classification: Restricted, pii: true}
+      - name: bureau_credit_count
+        description: Number of bureau credits for the applicant.
+        meta: {classification: Restricted, pii: true}
+      - name: previous_application_count
+        description: Number of previous Home Credit applications.
+        meta: {classification: Confidential, pii: true}
+      - name: loaded_at
+        description: Load timestamp of the source row.
+        meta: {classification: Internal, pii: false}
+
+  - name: fct_installment
+    description: >
+      One row per installment (previous_application_id, instalment_number, instalment_version). Split
+      payments are summed. days_late = max(days_last_payment - days_instalment_due, 0); is_underpaid when
+      paid_amount is more than 0.01 below instalment_amount.
+    meta:
+      owner: Data Governance
+      data_owner: Collections
+      refresh_frequency: on every raw reload
+      upstream_system: Home Credit (Kaggle extract)
+      source_table: installments_payments
+      contains_pii: true
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          name: fct_installment__key_unique
+          description: One row per installment.
+          arguments:
+            combination_of_columns: [previous_application_id, instalment_number, instalment_version]
+          config: {severity: error, meta: {dq_dimension: uniqueness, rule_id: FCT_INST_KEY_UNIQUE}}
+    columns:
+      - name: previous_application_id
+        description: Previous application ID.
+        meta: {classification: Confidential, pii: true}
+      - name: instalment_number
+        description: Installment number.
+        meta: {classification: Restricted, pii: true}
+      - name: instalment_version
+        description: Version of the installment calendar.
+        meta: {classification: Restricted, pii: true}
+      - name: applicant_id
+        description: Application ID.
+        meta: {classification: Confidential, pii: true}
+        data_tests:
+          - relationships:
+              name: fct_installment__applicant_exists
+              description: Every installment has an applicant in dim_applicant.
+              arguments:
+                to: ref('dim_applicant')
+                field: applicant_id
+              config: {severity: error, meta: {dq_dimension: referential_integrity, rule_id: FCT_INST_APPLICANT_EXISTS}}
+      - name: days_instalment_due
+        description: Due day relative to the current application.
+        meta: {classification: Restricted, pii: true}
+      - name: instalment_amount
+        description: Prescribed installment amount.
+        meta: {classification: Restricted, pii: true}
+      - name: paid_amount
+        description: Total paid across all payments for the installment (0 when unpaid).
+        meta: {classification: Restricted, pii: true}
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: fct_installment__paid_non_negative
+              description: Total paid is not negative.
+              arguments:
+                min_value: 0
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: FCT_INST_PAID_NON_NEGATIVE}}
+      - name: payment_count
+        description: Number of payments made for the installment.
+        meta: {classification: Restricted, pii: true}
+      - name: days_first_payment
+        description: Day of the first payment.
+        meta: {classification: Restricted, pii: true}
+      - name: days_last_payment
+        description: Day of the last payment.
+        meta: {classification: Restricted, pii: true}
+      - name: days_late
+        description: Days between due date and last payment, floored at 0. NULL when unpaid.
+        meta: {classification: Restricted, pii: true}
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: fct_installment__days_late_non_negative
+              description: Days late is not negative.
+              arguments:
+                min_value: 0
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: FCT_INST_DAYS_LATE_VALID}}
+      - name: is_unpaid
+        description: True when no payment was recorded.
+        meta: {classification: Restricted, pii: true}
+      - name: is_underpaid
+        description: True when paid_amount < instalment_amount - 0.01.
+        meta: {classification: Restricted, pii: true}
+      - name: has_overpayment
+        description: True when any payment was more than 2x the installment (DQ-014).
+        meta: {classification: Internal, pii: false}
+      - name: is_orphan_previous_application
+        description: True when the previous application is missing from previous_application (DQ-009).
+        meta: {classification: Internal, pii: false}
+      - name: loaded_at
+        description: Latest load timestamp of the source rows.
+        meta: {classification: Internal, pii: false}

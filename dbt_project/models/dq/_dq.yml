@@ -1,0 +1,146 @@
+version: 2
+
+models:
+  - name: dq_results
+    description: >
+      Every dbt test result stored in dq.dq_results_history, with run_number, is_latest_run, a pass flag
+      and row_conformance_pct (share of checked rows not returned by the test).
+    meta:
+      owner: Data Governance
+      data_owner: Data Governance
+      refresh_frequency: after every dbt test run
+      upstream_system: dbt run_results.json via reports/collect_dq_results.py
+    columns:
+      - name: run_id
+        description: dbt invocation_id of the test run.
+      - name: run_number
+        description: 1..n order of runs by run_at.
+      - name: is_latest_run
+        description: True for rows of the most recent run.
+      - name: run_at
+        description: When the test run finished (UTC).
+      - name: data_batch_id
+        description: Latest audit.load_log batch at collection time, links results to the data load.
+      - name: test_name
+        description: dbt test name.
+      - name: test_type
+        description: Generic test macro (for example dbt_expectations.expect_column_values_to_be_between) or singular.
+      - name: rule_id
+        description: Business rule identifier. The same rule_id in raw and staging means the same rule.
+      - name: layer
+        description: raw, staging or marts.
+      - name: source_table
+        description: Raw table the tested relation comes from.
+      - name: model_name
+        description: Tested source table or model.
+      - name: column_name
+        description: Tested column, NULL for table-level tests.
+      - name: dq_dimension
+        description: completeness, uniqueness, validity, consistency, referential_integrity or timeliness.
+      - name: severity
+        description: warn (known, documented issue) or error (must never fail).
+      - name: status
+        description: pass, warn, fail or error.
+      - name: is_pass
+        description: True when status = pass.
+      - name: failures
+        description: Rows (or keys / value groups for unique and accepted_values) returned by the test.
+      - name: rows_checked
+        description: Row count of the tested relation.
+      - name: row_conformance_pct
+        description: 100 * (1 - failures / rows_checked).
+      - name: description
+        description: Test description from the YAML.
+
+  - name: dq_scorecard
+    description: >
+      Pass rate per run, layer, table and DQ dimension, plus an 'overall' row per table.
+      dq_score_pct = tests passed / tests run * 100 (warn counts as not passed). previous_dq_score_pct and
+      dq_score_change give the trend against the previous run.
+    meta:
+      owner: Data Governance
+      data_owner: Data Governance
+      refresh_frequency: after every dbt test run
+      upstream_system: dq_results
+    columns:
+      - name: run_id
+        description: dbt invocation_id of the test run.
+      - name: run_number
+        description: 1..n order of runs.
+      - name: is_latest_run
+        description: True for the most recent run.
+      - name: run_at
+        description: When the test run finished (UTC).
+      - name: layer
+        description: raw, staging or marts.
+      - name: source_table
+        description: Raw table the tested relation comes from.
+      - name: model_name
+        description: Tested source table or model.
+      - name: dq_dimension
+        description: DQ dimension, or 'overall' for all tests of the table.
+      - name: tests_run
+        description: Number of tests.
+      - name: tests_passed
+        description: Tests with status pass.
+      - name: tests_warned
+        description: Tests with status warn.
+      - name: tests_failed
+        description: Tests with status fail or error.
+      - name: failing_records
+        description: Sum of failures across the tests.
+      - name: avg_row_conformance_pct
+        description: Average row_conformance_pct across the tests.
+      - name: dq_score_pct
+        description: tests_passed / tests_run * 100.
+      - name: previous_dq_score_pct
+        description: dq_score_pct of the previous run for the same layer, model and dimension.
+      - name: dq_score_change
+        description: dq_score_pct minus previous_dq_score_pct.
+
+  - name: dq_before_after
+    description: Latest run, one row per rule_id tested in both raw and staging, showing whether cleansing resolved it.
+    meta:
+      owner: Data Governance
+      data_owner: Data Governance
+      refresh_frequency: after every dbt test run
+      upstream_system: dq_results
+    columns:
+      - name: rule_id
+        description: Business rule identifier.
+      - name: source_table
+        description: Raw table the rule applies to.
+      - name: dq_dimension
+        description: DQ dimension of the rule.
+      - name: raw_test_name
+        description: Test name on the raw source.
+      - name: staging_test_name
+        description: Test name on the staging model.
+      - name: raw_status
+        description: Status on raw.
+      - name: staging_status
+        description: Status on staging.
+      - name: raw_failures
+        description: Failures on raw.
+      - name: staging_failures
+        description: Failures on staging.
+      - name: failures_resolved
+        description: raw_failures - staging_failures.
+      - name: outcome
+        description: clean in both, resolved by cleansing, still open (accepted) or regressed.
+
+exposures:
+  - name: dq_scorecard_report
+    label: DQ Scorecard (HTML)
+    type: dashboard
+    maturity: medium
+    url: ../reports/dq_scorecard.html
+    description: >
+      Plotly HTML report built by reports/build_scorecard.py: overall score per table, table x dimension
+      heatmap, before vs after cleansing, top failing rules and the trend across runs.
+    depends_on:
+      - ref('dq_scorecard')
+      - ref('dq_results')
+      - ref('dq_before_after')
+    owner:
+      name: Data Governance

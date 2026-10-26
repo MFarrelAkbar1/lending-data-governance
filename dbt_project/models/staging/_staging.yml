@@ -1,0 +1,774 @@
+version: 2
+
+# Staging layer: rename to snake_case, cast types, trim strings, map unknown
+# codes to NULL and replace placeholders with NULL plus a flag. Rows are never
+# dropped (checked by the *_no_rows_dropped tests).
+#
+# Tests reuse the rule_id of the matching raw-level test so the scorecard can
+# compare the same rule before and after cleansing.
+
+models:
+  - name: stg_applications
+    description: >
+      Cleansed current loan applications, one row per applicant_id. Curated subset of the 122 raw
+      columns. Cleansing: XNA / XAP / Unknown / empty category codes become NULL (macro clean_category),
+      DAYS_EMPLOYED = 365243 becomes NULL with is_days_employed_placeholder = true (DQ-001), Y/N flags
+      become booleans, amounts are cast to numeric(18, 2).
+    meta:
+      owner: Data Governance
+      data_owner: Loan Origination
+      refresh_frequency: on every raw reload
+      upstream_system: Home Credit (Kaggle extract)
+      source_table: application_train
+    data_tests:
+      - dbt_utils.equal_rowcount:
+          name: stg_applications__no_rows_dropped
+          description: Staging keeps every raw row (flag, never drop).
+          arguments:
+            compare_model: source('raw', 'application_train')
+          config: {severity: error, meta: {dq_dimension: completeness, rule_id: APP_NO_ROWS_DROPPED}}
+      - dbt_expectations.expect_table_row_count_to_equal:
+          name: stg_applications__row_count
+          description: Holds exactly 50,000 applications.
+          arguments:
+            value: 50000
+          config: {severity: error, meta: {dq_dimension: completeness, rule_id: APP_ROW_COUNT}}
+      - dbt_utils.expression_is_true:
+          name: stg_applications__annuity_le_credit
+          description: Annuity can never exceed the total credit amount.
+          arguments:
+            expression: annuity_amount <= credit_amount
+          config: {severity: error, meta: {dq_dimension: consistency, rule_id: APP_ANNUITY_LE_CREDIT}}
+      - dbt_utils.recency:
+          name: stg_applications__recency
+          description: Latest loaded_at is within the last day.
+          arguments:
+            datepart: day
+            field: loaded_at
+            interval: 1
+          config: {severity: warn, meta: {dq_dimension: timeliness, rule_id: APPLICATION_TRAIN_FRESH}}
+    columns:
+      - name: applicant_id
+        description: Application ID (raw SK_ID_CURR).
+        data_tests:
+          - unique:
+              name: stg_applications__id_unique
+              description: Application ID is unique.
+              config: {severity: error, meta: {dq_dimension: uniqueness, rule_id: APP_ID_UNIQUE}}
+          - not_null:
+              name: stg_applications__id_not_null
+              description: Application ID is always present.
+              config: {severity: error, meta: {dq_dimension: completeness, rule_id: APP_ID_NOT_NULL}}
+      - name: target_default_flag
+        description: 1 if the client had payment difficulties on the loan, 0 otherwise (raw TARGET).
+      - name: contract_type
+        description: Cash loans or Revolving loans (raw NAME_CONTRACT_TYPE, trimmed).
+        data_tests:
+          - not_null:
+              name: stg_applications__contract_type_not_null
+              description: Contract type is always present.
+              config: {severity: error, meta: {dq_dimension: completeness, rule_id: APP_CONTRACT_TYPE_NOT_NULL}}
+          - accepted_values:
+              name: stg_applications__contract_type_valid
+              description: Contract type is a known product.
+              arguments:
+                values: ["Cash loans", "Revolving loans"]
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: APP_CONTRACT_TYPE_VALID}}
+      - name: gender
+        description: M or F. Raw XNA mapped to NULL (DQ-003).
+        data_tests:
+          - accepted_values:
+              name: stg_applications__gender_valid
+              description: Gender is M, F or NULL (unknown).
+              arguments:
+                values: ["M", "F"]
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: APP_GENDER_VALID}}
+      - name: owns_car
+        description: Raw FLAG_OWN_CAR Y/N as boolean.
+      - name: owns_realty
+        description: Raw FLAG_OWN_REALTY Y/N as boolean.
+      - name: children_count
+        description: Number of children (raw CNT_CHILDREN).
+      - name: family_members_count
+        description: Number of family members (raw CNT_FAM_MEMBERS).
+      - name: income_type
+        description: Income type, for example Working, Pensioner (raw NAME_INCOME_TYPE).
+      - name: education_type
+        description: Highest education level (raw NAME_EDUCATION_TYPE).
+      - name: family_status
+        description: Family status. Raw 'Unknown' mapped to NULL (DQ-004).
+        data_tests:
+          - accepted_values:
+              name: stg_applications__family_status_valid
+              description: Family status is a known value or NULL.
+              arguments:
+                values: ["Civil marriage", "Married", "Separated", "Single / not married", "Widow"]
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: APP_FAMILY_STATUS_VALID}}
+      - name: housing_type
+        description: Housing situation (raw NAME_HOUSING_TYPE).
+      - name: occupation_type
+        description: Occupation. NULL in raw for about a third of applicants; not imputed (DQ-016).
+        data_tests:
+          - null_pct_below:
+              name: stg_applications__occupation_null_pct
+              description: Important column, null share below 20%. Known issue, accepted (DQ-016).
+              arguments:
+                threshold_pct: 20
+              config: {severity: warn, meta: {dq_dimension: completeness, rule_id: APP_OCCUPATION_NULL_PCT}}
+      - name: organization_type
+        description: Employer organization type. Raw XNA mapped to NULL (DQ-002).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_not_be_in_set:
+              name: stg_applications__organization_no_xna
+              description: Organization type no longer contains XNA.
+              arguments:
+                value_set: ["XNA"]
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: APP_ORG_NO_UNKNOWN_CODE}}
+      - name: income_total_amount
+        description: Declared total income (raw AMT_INCOME_TOTAL), numeric(18, 2).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_applications__income_positive
+              description: Income is greater than zero.
+              arguments:
+                min_value: 0
+                strictly: true
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: APP_INCOME_POSITIVE}}
+      - name: credit_amount
+        description: Credit amount of the loan (raw AMT_CREDIT), numeric(18, 2).
+        data_tests:
+          - not_null:
+              name: stg_applications__credit_not_null
+              description: Credit amount is always present.
+              config: {severity: error, meta: {dq_dimension: completeness, rule_id: APP_CREDIT_NOT_NULL}}
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_applications__credit_positive
+              description: Credit amount is greater than zero.
+              arguments:
+                min_value: 0
+                strictly: true
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: APP_CREDIT_POSITIVE}}
+      - name: annuity_amount
+        description: Loan annuity (raw AMT_ANNUITY). Missing for a few rows; not imputed (DQ-017).
+        data_tests:
+          - not_null:
+              name: stg_applications__annuity_not_null
+              description: Annuity is present. Known issue, accepted (DQ-017).
+              config: {severity: warn, meta: {dq_dimension: completeness, rule_id: APP_ANNUITY_NOT_NULL}}
+      - name: goods_price_amount
+        description: Price of the goods the loan is given for (raw AMT_GOODS_PRICE).
+        data_tests:
+          - null_pct_below:
+              name: stg_applications__goods_price_null_pct
+              description: Critical column, null share below 1%.
+              arguments:
+                threshold_pct: 1
+              config: {severity: error, meta: {dq_dimension: completeness, rule_id: APP_GOODS_PRICE_NULL_PCT}}
+      - name: days_birth
+        description: Age in days relative to the application date (negative).
+      - name: age_years
+        description: Derived. floor(-days_birth / 365.25).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_applications__age_range
+              description: Applicant age is between 18 and 75 years.
+              arguments:
+                min_value: 18
+                max_value: 75
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: APP_AGE_RANGE}}
+      - name: days_employed
+        description: Days employed before the application (negative). Raw placeholder 365243 mapped to NULL (DQ-001).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_applications__days_employed_sign
+              description: Employment start is in the past (<= 0).
+              arguments:
+                max_value: 0
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: APP_DAYS_EMPLOYED_VALID}}
+      - name: is_days_employed_placeholder
+        description: True when raw DAYS_EMPLOYED was the 365243 placeholder (mostly pensioners).
+        data_tests:
+          - not_null:
+              name: stg_applications__placeholder_flag_not_null
+              description: Placeholder flag is always set.
+              config: {severity: error, meta: {dq_dimension: completeness, rule_id: APP_PLACEHOLDER_FLAG_SET}}
+      - name: employment_years
+        description: Derived. -days_employed / 365.25, one decimal. NULL when days_employed is NULL.
+      - name: days_registration
+        description: Days since the client changed registration (negative).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_applications__days_registration_sign
+              description: DAYS_* columns relative to application are <= 0.
+              arguments:
+                max_value: 0
+              config: {severity: error, meta: {dq_dimension: consistency, rule_id: APP_DAYS_REGISTRATION_SIGN}}
+      - name: days_id_publish
+        description: Days since the client changed the identity document (negative).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_applications__days_id_publish_sign
+              description: DAYS_* columns relative to application are <= 0.
+              arguments:
+                max_value: 0
+              config: {severity: error, meta: {dq_dimension: consistency, rule_id: APP_DAYS_ID_PUBLISH_SIGN}}
+      - name: days_last_phone_change
+        description: Days since the client changed phone (negative).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_applications__days_phone_change_sign
+              description: DAYS_* columns relative to application are <= 0.
+              arguments:
+                max_value: 0
+              config: {severity: error, meta: {dq_dimension: consistency, rule_id: APP_DAYS_PHONE_CHANGE_SIGN}}
+      - name: region_rating_client
+        description: Home Credit rating of the client's region (1 to 3).
+      - name: ext_source_1
+        description: Normalized score from external data source 1.
+      - name: ext_source_2
+        description: Normalized score from external data source 2.
+      - name: ext_source_3
+        description: Normalized score from external data source 3.
+      - name: loaded_at
+        description: Raw _loaded_at, used for freshness.
+      - name: batch_id
+        description: Raw _batch_id; joins to audit.load_log.
+
+  - name: stg_bureau
+    description: >
+      Cleansed credit bureau records, one row per bureau_id. DAYS_CREDIT_ENDDATE and DAYS_CREDIT_UPDATE
+      values more than 100 years in the past become NULL with a flag (DQ-011). Negative debt and limit
+      amounts are kept as reported and flagged (DQ-010). Credits closed before they were opened are
+      flagged (DQ-012).
+    meta:
+      owner: Data Governance
+      data_owner: Credit Risk
+      refresh_frequency: on every raw reload
+      upstream_system: Credit bureau (Kaggle extract)
+      source_table: bureau
+    data_tests:
+      - dbt_utils.equal_rowcount:
+          name: stg_bureau__no_rows_dropped
+          description: Staging keeps every raw row (flag, never drop).
+          arguments:
+            compare_model: source('raw', 'bureau')
+          config: {severity: error, meta: {dq_dimension: completeness, rule_id: BUR_NO_ROWS_DROPPED}}
+      - dbt_utils.expression_is_true:
+          name: stg_bureau__enddate_fact_after_start
+          description: A credit cannot be closed before it was opened. Known issue, flagged (DQ-012).
+          arguments:
+            expression: days_enddate_fact >= days_credit
+          config: {severity: warn, meta: {dq_dimension: consistency, rule_id: BUR_CLOSED_AFTER_OPENED}}
+      - dbt_utils.recency:
+          name: stg_bureau__recency
+          description: Latest loaded_at is within the last day.
+          arguments:
+            datepart: day
+            field: loaded_at
+            interval: 1
+          config: {severity: warn, meta: {dq_dimension: timeliness, rule_id: BUREAU_FRESH}}
+    columns:
+      - name: bureau_id
+        description: Bureau credit ID (raw SK_ID_BUREAU).
+        data_tests:
+          - unique:
+              name: stg_bureau__id_unique
+              description: Bureau credit ID is unique.
+              config: {severity: error, meta: {dq_dimension: uniqueness, rule_id: BUR_ID_UNIQUE}}
+          - not_null:
+              name: stg_bureau__id_not_null
+              description: Bureau credit ID is always present.
+              config: {severity: error, meta: {dq_dimension: completeness, rule_id: BUR_ID_NOT_NULL}}
+      - name: applicant_id
+        description: Application ID (raw SK_ID_CURR).
+        data_tests:
+          - relationships:
+              name: stg_bureau__applicant_exists
+              description: Every bureau credit belongs to an application.
+              arguments:
+                to: ref('stg_applications')
+                field: applicant_id
+              config: {severity: error, meta: {dq_dimension: referential_integrity, rule_id: BUR_APPLICANT_EXISTS}}
+      - name: credit_status
+        description: Active, Closed, Sold or Bad debt (raw CREDIT_ACTIVE).
+        data_tests:
+          - accepted_values:
+              name: stg_bureau__credit_active_valid
+              description: Bureau credit status is a known value.
+              arguments:
+                values: ["Active", "Closed", "Sold", "Bad debt"]
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: BUR_STATUS_VALID}}
+      - name: credit_currency
+        description: Recoded currency of the bureau credit.
+      - name: credit_type
+        description: Type of bureau credit, for example Consumer credit, Credit card.
+      - name: days_credit
+        description: Days before the application when the client applied for the bureau credit (negative).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_bureau__days_credit_sign
+              description: Credit was opened before the application (<= 0).
+              arguments:
+                max_value: 0
+              config: {severity: error, meta: {dq_dimension: consistency, rule_id: BUR_DAYS_CREDIT_SIGN}}
+      - name: credit_days_overdue
+        description: Days past due on the bureau credit at application time.
+      - name: days_credit_enddate
+        description: Remaining planned duration in days. Values below -36,500 mapped to NULL (DQ-011).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_bureau__enddate_plausible
+              description: Planned end date is not more than 100 years in the past.
+              arguments:
+                min_value: -36500
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: BUR_ENDDATE_PLAUSIBLE}}
+      - name: is_days_credit_enddate_implausible
+        description: True when raw DAYS_CREDIT_ENDDATE was below -36,500.
+      - name: days_enddate_fact
+        description: Days since the bureau credit ended, only for closed credits (negative).
+      - name: is_closed_before_opened
+        description: True when days_enddate_fact is earlier than days_credit (DQ-012).
+      - name: days_credit_update
+        description: Days before the application of the last bureau update. Values below -36,500 mapped to NULL (DQ-011).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_bureau__update_plausible
+              description: Last update is not more than 100 years in the past.
+              arguments:
+                min_value: -36500
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: BUR_UPDATE_PLAUSIBLE}}
+      - name: is_days_credit_update_implausible
+        description: True when raw DAYS_CREDIT_UPDATE was below -36,500.
+      - name: credit_prolong_count
+        description: Number of times the bureau credit was prolonged.
+      - name: credit_max_overdue_amount
+        description: Maximum amount overdue so far.
+      - name: credit_sum_amount
+        description: Current credit amount.
+      - name: credit_debt_amount
+        description: Current debt. Negative values kept as reported and flagged (DQ-010).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_bureau__debt_non_negative
+              description: Outstanding debt is not negative. Known issue, flagged and accepted (DQ-010).
+              arguments:
+                min_value: 0
+              config: {severity: warn, meta: {dq_dimension: validity, rule_id: BUR_DEBT_NON_NEGATIVE}}
+      - name: is_negative_debt
+        description: True when credit_debt_amount is negative.
+      - name: credit_limit_amount
+        description: Current credit limit of a credit card. Negative values kept and flagged (DQ-010).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_bureau__limit_non_negative
+              description: Credit limit is not negative. Known issue, flagged and accepted (DQ-010).
+              arguments:
+                min_value: 0
+              config: {severity: warn, meta: {dq_dimension: validity, rule_id: BUR_LIMIT_NON_NEGATIVE}}
+      - name: is_negative_limit
+        description: True when credit_limit_amount is negative.
+      - name: credit_overdue_amount
+        description: Amount currently overdue.
+      - name: annuity_amount
+        description: Annuity of the bureau credit.
+      - name: loaded_at
+        description: Raw _loaded_at, used for freshness.
+      - name: batch_id
+        description: Raw _batch_id; joins to audit.load_log.
+
+  - name: stg_bureau_balance
+    description: Monthly bureau credit status, one row per bureau_id and months_balance. STATUS X (unknown) maps to a NULL description.
+    meta:
+      owner: Data Governance
+      data_owner: Credit Risk
+      refresh_frequency: on every raw reload
+      upstream_system: Credit bureau (Kaggle extract)
+      source_table: bureau_balance
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          name: stg_bureau_balance__key_unique
+          description: One row per bureau credit per month.
+          arguments:
+            combination_of_columns: [bureau_id, months_balance]
+          config: {severity: error, meta: {dq_dimension: uniqueness, rule_id: BB_KEY_UNIQUE}}
+      - dbt_utils.equal_rowcount:
+          name: stg_bureau_balance__no_rows_dropped
+          description: Staging keeps every raw row.
+          arguments:
+            compare_model: source('raw', 'bureau_balance')
+          config: {severity: error, meta: {dq_dimension: completeness, rule_id: BB_NO_ROWS_DROPPED}}
+      - dbt_utils.recency:
+          name: stg_bureau_balance__recency
+          description: Latest loaded_at is within the last day.
+          arguments:
+            datepart: day
+            field: loaded_at
+            interval: 1
+          config: {severity: warn, meta: {dq_dimension: timeliness, rule_id: BUREAU_BALANCE_FRESH}}
+    columns:
+      - name: bureau_id
+        description: Bureau credit ID (raw SK_ID_BUREAU).
+        data_tests:
+          - relationships:
+              name: stg_bureau_balance__bureau_exists
+              description: Every monthly balance belongs to a bureau credit.
+              arguments:
+                to: ref('stg_bureau')
+                field: bureau_id
+              config: {severity: error, meta: {dq_dimension: referential_integrity, rule_id: BB_BUREAU_EXISTS}}
+      - name: months_balance
+        description: Month relative to the application date (0 = latest).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_bureau_balance__months_sign
+              description: Month is <= 0.
+              arguments:
+                max_value: 0
+              config: {severity: error, meta: {dq_dimension: consistency, rule_id: BB_MONTHS_SIGN}}
+      - name: status_code
+        description: Raw STATUS code, trimmed.
+        data_tests:
+          - accepted_values:
+              name: stg_bureau_balance__status_valid
+              description: Status is a DPD bucket (0 to 5), C or X.
+              arguments:
+                values: ["0", "1", "2", "3", "4", "5", "C", "X"]
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: BB_STATUS_VALID}}
+      - name: status_description
+        description: Readable status. C = closed, 0 = no DPD, 1 to 5 = DPD buckets, X (unknown) = NULL.
+      - name: loaded_at
+        description: Raw _loaded_at, used for freshness.
+      - name: batch_id
+        description: Raw _batch_id; joins to audit.load_log.
+
+  - name: stg_previous_applications
+    description: >
+      Cleansed previous Home Credit applications, one row per previous_application_id. XNA / XAP codes
+      in category columns become NULL (DQ-006). The five DAYS_* placeholder columns (365243) become NULL
+      with is_<column>_placeholder flags (DQ-005). SELLERPLACE_AREA = -1 becomes NULL (DQ-008).
+    meta:
+      owner: Data Governance
+      data_owner: Loan Origination
+      refresh_frequency: on every raw reload
+      upstream_system: Home Credit (Kaggle extract)
+      source_table: previous_application
+    data_tests:
+      - dbt_utils.equal_rowcount:
+          name: stg_previous_applications__no_rows_dropped
+          description: Staging keeps every raw row.
+          arguments:
+            compare_model: source('raw', 'previous_application')
+          config: {severity: error, meta: {dq_dimension: completeness, rule_id: PREV_NO_ROWS_DROPPED}}
+      - dbt_utils.expression_is_true:
+          name: stg_previous_applications__annuity_le_credit
+          description: Annuity can never exceed the credit amount when credit > 0.
+          arguments:
+            expression: annuity_amount <= credit_amount
+          config: {severity: error, where: "credit_amount > 0", meta: {dq_dimension: consistency, rule_id: PREV_ANNUITY_LE_CREDIT}}
+      - dbt_utils.recency:
+          name: stg_previous_applications__recency
+          description: Latest loaded_at is within the last day.
+          arguments:
+            datepart: day
+            field: loaded_at
+            interval: 1
+          config: {severity: warn, meta: {dq_dimension: timeliness, rule_id: PREVIOUS_APPLICATION_FRESH}}
+    columns:
+      - name: previous_application_id
+        description: Previous application ID (raw SK_ID_PREV).
+        data_tests:
+          - unique:
+              name: stg_previous_applications__id_unique
+              description: Previous application ID is unique.
+              config: {severity: error, meta: {dq_dimension: uniqueness, rule_id: PREV_ID_UNIQUE}}
+          - not_null:
+              name: stg_previous_applications__id_not_null
+              description: Previous application ID is always present.
+              config: {severity: error, meta: {dq_dimension: completeness, rule_id: PREV_ID_NOT_NULL}}
+      - name: applicant_id
+        description: Application ID (raw SK_ID_CURR).
+        data_tests:
+          - relationships:
+              name: stg_previous_applications__applicant_exists
+              description: Every previous application belongs to an application.
+              arguments:
+                to: ref('stg_applications')
+                field: applicant_id
+              config: {severity: error, meta: {dq_dimension: referential_integrity, rule_id: PREV_APPLICANT_EXISTS}}
+      - name: contract_type
+        description: Contract product. Raw XNA mapped to NULL (DQ-006).
+        data_tests:
+          - accepted_values:
+              name: stg_previous_applications__contract_type_valid
+              description: Contract type is a known product or NULL.
+              arguments:
+                values: ["Cash loans", "Consumer loans", "Revolving loans"]
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: PREV_CONTRACT_TYPE_VALID}}
+      - name: contract_status
+        description: Approved, Canceled, Refused or Unused offer.
+        data_tests:
+          - accepted_values:
+              name: stg_previous_applications__status_valid
+              description: Decision status is a known value.
+              arguments:
+                values: ["Approved", "Canceled", "Refused", "Unused offer"]
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: PREV_STATUS_VALID}}
+      - name: reject_reason
+        description: Reason for rejection. Raw XAP (not applicable, mostly approved) and XNA mapped to NULL.
+      - name: cash_loan_purpose
+        description: Purpose of a cash loan. Raw XAP and XNA mapped to NULL (DQ-006).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_not_be_in_set:
+              name: stg_previous_applications__loan_purpose_no_unknown
+              description: Loan purpose no longer contains XNA or XAP.
+              arguments:
+                value_set: ["XNA", "XAP"]
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: PREV_PURPOSE_NO_UNKNOWN_CODE}}
+      - name: payment_type
+        description: Payment method chosen by the client. Raw XNA mapped to NULL (DQ-006).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_not_be_in_set:
+              name: stg_previous_applications__payment_type_no_unknown
+              description: Payment type no longer contains XNA.
+              arguments:
+                value_set: ["XNA"]
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: PREV_PAYMENT_TYPE_NO_UNKNOWN_CODE}}
+      - name: client_type
+        description: New or repeat client at the time of the previous application.
+      - name: goods_category
+        description: Category of goods applied for.
+      - name: portfolio
+        description: Portfolio, for example Cash, POS, Cards.
+      - name: product_type
+        description: x-sell or walk-in.
+      - name: channel_type
+        description: Acquisition channel.
+      - name: seller_industry
+        description: Industry of the seller.
+      - name: yield_group
+        description: Grouped interest rate (low, middle, high).
+      - name: seller_place_area
+        description: Selling area of the seller. Raw -1 sentinel mapped to NULL (DQ-008).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_not_be_in_set:
+              name: stg_previous_applications__sellerplace_no_sentinel
+              description: Seller area no longer contains -1.
+              arguments:
+                value_set: [-1]
+                quote_values: false
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: PREV_SELLERPLACE_NO_SENTINEL}}
+      - name: application_amount
+        description: Amount the client asked for.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_previous_applications__amount_non_negative
+              description: Requested amount is not negative.
+              arguments:
+                min_value: 0
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: PREV_AMOUNT_NON_NEGATIVE}}
+      - name: credit_amount
+        description: Final credit amount. 0 for most canceled applications (DQ-014, accepted).
+      - name: annuity_amount
+        description: Annuity of the previous application.
+      - name: down_payment_amount
+        description: Down payment on the previous application.
+      - name: goods_price_amount
+        description: Price of the goods asked for.
+      - name: payment_count
+        description: Term of the previous credit in months.
+      - name: days_decision
+        description: Days before the current application when the decision was made (negative).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_previous_applications__days_decision_sign
+              description: Decision happened before the current application (<= 0).
+              arguments:
+                max_value: 0
+              config: {severity: error, meta: {dq_dimension: consistency, rule_id: PREV_DAYS_DECISION_SIGN}}
+      - name: days_first_drawing
+        description: Days of first disbursement. Raw 365243 mapped to NULL (DQ-005).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_previous_applications__days_first_drawing_valid
+              description: Value is <= 0 after placeholder removal.
+              arguments:
+                max_value: 0
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: PREV_DAYS_FIRST_DRAWING_VALID}}
+      - name: is_days_first_drawing_placeholder
+        description: True when raw DAYS_FIRST_DRAWING was 365243.
+      - name: days_first_due
+        description: Days of first due date. Raw 365243 mapped to NULL (DQ-005).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_previous_applications__days_first_due_valid
+              description: Value is <= 0 after placeholder removal.
+              arguments:
+                max_value: 0
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: PREV_DAYS_FIRST_DUE_VALID}}
+      - name: is_days_first_due_placeholder
+        description: True when raw DAYS_FIRST_DUE was 365243.
+      - name: days_last_due_1st_version
+        description: Days of first planned last due date. Raw 365243 mapped to NULL (DQ-005). Can be positive (planned after the current application).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_previous_applications__days_last_due_1st_version_valid
+              description: Value is within +/- 100 years. Positive values are legitimate here (DQ-018).
+              arguments:
+                min_value: -36500
+                max_value: 36500
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: PREV_DAYS_LAST_DUE_1ST_VERSION_VALID}}
+      - name: is_days_last_due_1st_version_placeholder
+        description: True when raw DAYS_LAST_DUE_1ST_VERSION was 365243.
+      - name: days_last_due
+        description: Days of last due date. Raw 365243 mapped to NULL (DQ-005).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_previous_applications__days_last_due_valid
+              description: Value is <= 0 after placeholder removal.
+              arguments:
+                max_value: 0
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: PREV_DAYS_LAST_DUE_VALID}}
+      - name: is_days_last_due_placeholder
+        description: True when raw DAYS_LAST_DUE was 365243.
+      - name: days_termination
+        description: Days of expected termination. Raw 365243 mapped to NULL (DQ-005).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_previous_applications__days_termination_valid
+              description: Value is <= 0 after placeholder removal.
+              arguments:
+                max_value: 0
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: PREV_DAYS_TERMINATION_VALID}}
+      - name: is_days_termination_placeholder
+        description: True when raw DAYS_TERMINATION was 365243.
+      - name: is_last_application_per_contract
+        description: Raw FLAG_LAST_APPL_PER_CONTRACT Y/N as boolean.
+      - name: loaded_at
+        description: Raw _loaded_at, used for freshness.
+      - name: batch_id
+        description: Raw _batch_id; joins to audit.load_log.
+
+  - name: stg_installments
+    description: >
+      Installment payments at payment level. Grain: previous_application_id + instalment_number +
+      instalment_version + payment_seq, because split payments create several raw rows per installment
+      (DQ-007). Missing payments, overpayments and orphan previous applications are flagged, not removed.
+    meta:
+      owner: Data Governance
+      data_owner: Collections
+      refresh_frequency: on every raw reload
+      upstream_system: Home Credit (Kaggle extract)
+      source_table: installments_payments
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          name: stg_installments__key_unique
+          description: Unique on the documented staging grain (installment key + payment_seq).
+          arguments:
+            combination_of_columns: [previous_application_id, instalment_number, instalment_version, payment_seq]
+          config: {severity: error, meta: {dq_dimension: uniqueness, rule_id: INST_KEY_UNIQUE}}
+      - dbt_utils.equal_rowcount:
+          name: stg_installments__no_rows_dropped
+          description: Staging keeps every raw row.
+          arguments:
+            compare_model: source('raw', 'installments_payments')
+          config: {severity: error, meta: {dq_dimension: completeness, rule_id: INST_NO_ROWS_DROPPED}}
+      - dbt_utils.expression_is_true:
+          name: stg_installments__payment_not_hugely_above_instalment
+          description: Payment is at most 2x the installment. Known issue, flagged as is_overpayment (DQ-014).
+          arguments:
+            expression: "not (instalment_amount > 0 and payment_amount > 2 * instalment_amount)"
+          config: {severity: warn, meta: {dq_dimension: consistency, rule_id: INST_PAYMENT_LE_2X_INSTALMENT}}
+      - dbt_utils.recency:
+          name: stg_installments__recency
+          description: Latest loaded_at is within the last day.
+          arguments:
+            datepart: day
+            field: loaded_at
+            interval: 1
+          config: {severity: warn, meta: {dq_dimension: timeliness, rule_id: INSTALLMENTS_PAYMENTS_FRESH}}
+    columns:
+      - name: previous_application_id
+        description: Previous application ID (raw SK_ID_PREV). About 8.6% of rows have no matching previous application (DQ-009).
+        data_tests:
+          - relationships:
+              name: stg_installments__previous_exists
+              description: Every installment belongs to a previous application. Known issue, flagged and accepted (DQ-009).
+              arguments:
+                to: ref('stg_previous_applications')
+                field: previous_application_id
+              config: {severity: warn, meta: {dq_dimension: referential_integrity, rule_id: INST_PREVIOUS_EXISTS}}
+      - name: applicant_id
+        description: Application ID (raw SK_ID_CURR).
+        data_tests:
+          - relationships:
+              name: stg_installments__applicant_exists
+              description: Every installment belongs to an application.
+              arguments:
+                to: ref('stg_applications')
+                field: applicant_id
+              config: {severity: error, meta: {dq_dimension: referential_integrity, rule_id: INST_APPLICANT_EXISTS}}
+      - name: instalment_version
+        description: Version of the installment calendar (0 = credit card).
+      - name: instalment_number
+        description: Installment number being paid.
+      - name: payment_seq
+        description: Derived. 1..n order of payments within one installment, by payment day then amount.
+      - name: days_instalment_due
+        description: Day the installment was due, relative to the current application (negative).
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_installments__due_date_sign
+              description: Due date is before the current application (<= 0).
+              arguments:
+                max_value: 0
+              config: {severity: error, meta: {dq_dimension: consistency, rule_id: INST_DUE_DATE_SIGN}}
+      - name: days_entry_payment
+        description: Day the payment was made, relative to the current application (negative). NULL when unpaid.
+        data_tests:
+          - not_null:
+              name: stg_installments__entry_date_not_null
+              description: Payment date is present. Known issue, flagged as is_payment_missing (DQ-013).
+              config: {severity: warn, meta: {dq_dimension: completeness, rule_id: INST_ENTRY_DATE_NOT_NULL}}
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_installments__entry_date_sign
+              description: Payment happened before the current application (<= 0).
+              arguments:
+                max_value: 0
+              config: {severity: error, meta: {dq_dimension: consistency, rule_id: INST_ENTRY_DATE_SIGN}}
+      - name: instalment_amount
+        description: Prescribed installment amount.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_installments__instalment_non_negative
+              description: Installment amount is not negative.
+              arguments:
+                min_value: 0
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: INST_INSTALMENT_NON_NEGATIVE}}
+      - name: payment_amount
+        description: Amount actually paid in this payment. NULL when unpaid (DQ-013).
+        data_tests:
+          - not_null:
+              name: stg_installments__payment_not_null
+              description: Payment amount is present. Known issue, flagged as is_payment_missing (DQ-013).
+              config: {severity: warn, meta: {dq_dimension: completeness, rule_id: INST_PAYMENT_NOT_NULL}}
+          - dbt_expectations.expect_column_values_to_be_between:
+              name: stg_installments__payment_non_negative
+              description: Payment amount is not negative.
+              arguments:
+                min_value: 0
+              config: {severity: error, meta: {dq_dimension: validity, rule_id: INST_PAYMENT_NON_NEGATIVE}}
+      - name: is_payment_missing
+        description: True when the raw payment amount is NULL.
+      - name: is_overpayment
+        description: True when payment_amount > 2x instalment_amount (DQ-014).
+      - name: is_orphan_previous_application
+        description: True when previous_application_id has no row in previous_application (DQ-009).
+        data_tests:
+          - not_null:
+              name: stg_installments__orphan_flag_not_null
+              description: Orphan flag is always set.
+              config: {severity: error, meta: {dq_dimension: completeness, rule_id: INST_ORPHAN_FLAG_SET}}
+      - name: loaded_at
+        description: Raw _loaded_at, used for freshness.
+      - name: batch_id
+        description: Raw _batch_id; joins to audit.load_log.

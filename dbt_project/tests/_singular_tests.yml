@@ -1,0 +1,9 @@
+version: 2
+
+data_tests:
+  - name: raw_application_days_sign_convention
+    description: All DAYS_* columns in raw application_train are <= 0. Known failure from the 365243 placeholder (DQ-001).
+  - name: stg_applications_days_sign_convention
+    description: All days_* columns in stg_applications are <= 0 after cleansing.
+  - name: fct_installment_reconciles_to_staging
+    description: Total paid and payment count in fct_installment equal the payment-level totals in stg_installments.
