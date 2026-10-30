@@ -1,0 +1,18 @@
+column,data_type,null_count,null_pct,distinct_count,min,max,top_5_values
+SK_ID_CURR,bigint,0,0.0,42786,100002,456247,371490 (47); 376667 (47); 360964 (41); 376299 (41); 124373 (39)
+SK_ID_BUREAU,bigint,0,0.0,237076,5000019,6843447,5000019 (1); 5000020 (1); 5000061 (1); 5000062 (1); 5000063 (1)
+CREDIT_ACTIVE,text,0,0.0,4,Active,Sold,"Closed (148,275); Active (87,856); Sold (942); Bad debt (3)"
+CREDIT_CURRENCY,text,0,0.0,4,currency 1,currency 4,"currency 1 (236,864); currency 2 (185); currency 3 (26); currency 4 (1)"
+DAYS_CREDIT,bigint,0,0.0,2922,-2922,-1,-365 (202); -357 (193); -364 (185); -336 (178); -175 (172)
+CREDIT_DAY_OVERDUE,bigint,0,0.0,233,0,2703,"0 (236,471); 30 (45); 60 (24); 14 (17); 20 (15)"
+DAYS_CREDIT_ENDDATE,double precision,14380,6.07,9299,-42041,31199,-21 (136); -16 (127); -7 (125); 1 (119); 3 (119)
+DAYS_ENDDATE_FACT,double precision,88285,37.24,2856,-2916,0,-924 (138); -337 (126); -274 (120); -154 (119); -105 (118)
+AMT_CREDIT_MAX_OVERDUE,double precision,153470,64.73,12752,0,9231525,"0 (66,313); 1440 (97); 45 (68); 225 (63); 4.5 (42)"
+CNT_CREDIT_PROLONG,bigint,0,0.0,7,0,9,"0 (235,667); 1 (1,176); 2 (192); 3 (30); 4 (7)"
+AMT_CREDIT_SUM,double precision,0,0.0,61402,0,396000000,"0 (9,039); 225000 (8,097); 135000 (7,090); 450000 (5,144); 90000 (5,105)"
+AMT_CREDIT_SUM_DEBT,double precision,36016,15.19,50900,-1354875.615,59637690,"0 (139,746); -450 (96); 4.5 (81); 135000 (51); 45000 (41)"
+AMT_CREDIT_SUM_LIMIT,double precision,78998,33.32,7902,-121905.675,2207250,"0 (147,549); 135000 (325); 4500 (240); 45000 (169); 90000 (135)"
+AMT_CREDIT_SUM_OVERDUE,double precision,0,0.0,331,0,959386.5,"0 (236,478); 4.5 (47); 9 (13); 13.5 (11); 45 (11)"
+CREDIT_TYPE,text,0,0.0,11,Another type of loan,Unknown type of loan,"Consumer credit (173,212); Credit card (55,651); Car loan (3,749); Mortgage (2,556); Microloan (1,340)"
+DAYS_CREDIT_UPDATE,bigint,0,0.0,2869,-41943,13,"-8 (2,540); -7 (2,536); -10 (2,363); -12 (2,324); -9 (2,299)"
+AMT_ANNUITY,double precision,182899,77.15,9045,0,24016036.5,"0 (26,783); 4500 (651); 13500 (454); 22500 (286); 45000 (235)"

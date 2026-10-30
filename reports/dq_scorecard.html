@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DQ Scorecard</title>
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0;
+    --surface-1: #fcfcfb;
+    --border: #e2e1dc;
+    --grid: #ebeae6;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #73726c;
+    --series-raw: #2a78d6;
+    --series-staging: #eb6834;
+    --series-marts: #1baf7a;
+    --seq-low: #cde2fb;
+    --seq-high: #184f95;
+    --status-good: #0ca30c;
+    --status-warning: #fab219;
+    --status-critical: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #111110;
+      --surface-1: #1a1a19;
+      --border: #383835;
+      --grid: #2a2a28;
+      --text-primary: #f0efec;
+      --text-secondary: #c3c2b7;
+      --text-muted: #9a998f;
+      --series-raw: #3987e5;
+      --series-staging: #d95926;
+      --series-marts: #199e70;
+      --seq-low: #0d366b;
+      --seq-high: #9ec5f4;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-0: #111110;
+    --surface-1: #1a1a19;
+    --border: #383835;
+    --grid: #2a2a28;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #9a998f;
+    --series-raw: #3987e5;
+    --series-staging: #d95926;
+    --series-marts: #199e70;
+    --seq-low: #0d366b;
+    --seq-high: #9ec5f4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--surface-0); color: var(--text-primary);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 1120px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 17px; margin: 0 0 4px; }
+  .sub, .caption { color: var(--text-secondary); margin: 0; }
+  .caption { font-size: 13px; margin-bottom: 12px; }
+  .meta { color: var(--text-muted); font-size: 12px; margin-top: 6px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 24px 0; }
+  .kpi, .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; }
+  .kpi { padding: 14px 16px; }
+  .kpi .label { color: var(--text-secondary); font-size: 12px; }
+  .kpi .value { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .kpi .note { color: var(--text-muted); font-size: 12px; }
+  .card { padding: 18px 18px 8px; margin-bottom: 16px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+  .chart { width: 100%; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
+  .table-wrap { overflow-x: auto; margin-bottom: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; }
+  .status { display: inline-flex; align-items: center; gap: 5px; }
+  .status::before { font-size: 11px; font-weight: 700; color: var(--c); }
+  .status.pass { --c: var(--status-good); } .status.pass::before { content: "\2713"; }
+  .status.warn { --c: var(--status-warning); } .status.warn::before { content: "!"; }
+  .status.fail, .status.error { --c: var(--status-critical); } .status.fail::before, .status.error::before { content: "\2715"; }
+  details summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; margin: 4px 0 10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Data Quality Scorecard</h1>
+  <p class="sub">Home Credit lending sample. Raw, staging and mart tables tested with dbt across six DQ dimensions.</p>
+  <p class="meta" id="meta"></p>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="card">
+    <h2>Before vs after cleansing</h2>
+    <p class="caption">DQ score (tests passed / tests run) of each raw table and its staging model. Same rules in both layers, matched by rule_id; staging adds a few rules (no rows dropped, flag columns set).</p>
+    <div class="legend"><span style="--c: var(--series-raw)">Raw (before)</span><span style="--c: var(--series-staging)">Staging (after)</span></div>
+    <div id="beforeAfter" class="chart"></div>
+  </section>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>Overall score per table</h2>
+      <p class="caption">Latest run, every tested table or model, colored by layer.</p>
+      <div class="legend"><span style="--c: var(--series-raw)">Raw</span><span style="--c: var(--series-staging)">Staging</span><span style="--c: var(--series-marts)">Marts</span></div>
+      <div id="overall" class="chart"></div>
+    </section>
+    <section class="card">
+      <h2>Trend across runs</h2>
+      <p class="caption">Score per layer for every stored run in dq.dq_results_history.</p>
+      <div class="legend"><span style="--c: var(--series-raw)">Raw</span><span style="--c: var(--series-staging)">Staging</span><span style="--c: var(--series-marts)">Marts</span></div>
+      <div id="trend" class="chart"></div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Table x dimension</h2>
+    <p class="caption">Pass rate per DQ dimension, latest run. Cell text shows passed / run. Blank means no rule in that dimension.</p>
+    <div id="heat" class="chart"></div>
+  </section>
+
+  <section class="card">
+    <h2>Top failing rules</h2>
+    <p class="caption">Latest run, rules that did not pass, by records returned (log scale). All are severity warn: known issues documented in governance/dq-issue-log.md.</p>
+    <div id="failing" class="chart"></div>
+    <details><summary>Show as table</summary><div class="table-wrap" id="failingTable"></div></details>
+  </section>
+
+  <section class="card">
+    <h2>Rule-level comparison</h2>
+    <p class="caption">Rules tested in both raw and staging that failed at least once. "Resolved by cleansing" means the staging rule passes; "still open (accepted)" means the issue is flagged and kept, not hidden.</p>
+    <div class="table-wrap" id="ruleTable"></div>
+  </section>
+
+  <section class="card">
+    <h2>Latest load</h2>
+    <p class="caption">audit.load_log for the batch these results were computed on.</p>
+    <div class="table-wrap" id="loadTable"></div>
+  </section>
+</main>
+
+<script>
+const DATA = {"generated_at": "2026-10-25 15:14 UTC", "run_count": 2, "latest_run_at": "2026-10-25 15:13:54.733063+00:00", "kpi": {"tests": 149, "passed": 114, "warned": 35, "failed": 0, "raw_score": 60.6, "staging_score": 87.7, "rows_loaded": 4782142, "batch_id": "20261025T151202_6e6353", "rules_resolved": 17, "rules_open": 9, "rules_paired": 66}, "overall": [{"layer": "raw", "model_name": "application_train", "source_table": "application_train", "tests_run": 22, "tests_passed": 15, "tests_warned": 7, "tests_failed": 0, "dq_score_pct": 68.2}, {"layer": "raw", "model_name": "bureau", "source_table": "bureau", "tests_run": 11, "tests_passed": 6, "tests_warned": 5, "tests_failed": 0, "dq_score_pct": 54.5}, {"layer": "raw", "model_name": "bureau_balance", "source_table": "bureau_balance", "tests_run": 5, "tests_passed": 5, "tests_warned": 0, "tests_failed": 0, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "installments_payments", "source_table": "installments_payments", "tests_run": 11, "tests_passed": 6, "tests_warned": 5, "tests_failed": 0, "dq_score_pct": 54.5}, {"layer": "raw", "model_name": "previous_application", "source_table": "previous_application", "tests_run": 17, "tests_passed": 8, "tests_warned": 9, "tests_failed": 0, "dq_score_pct": 47.1}, {"layer": "staging", "model_name": "stg_applications", "source_table": "application_train", "tests_run": 24, "tests_passed": 22, "tests_warned": 2, "tests_failed": 0, "dq_score_pct": 91.7}, {"layer": "staging", "model_name": "stg_bureau", "source_table": "bureau", "tests_run": 12, "tests_passed": 9, "tests_warned": 3, "tests_failed": 0, "dq_score_pct": 75.0}, {"layer": "staging", "model_name": "stg_bureau_balance", "source_table": "bureau_balance", "tests_run": 6, "tests_passed": 6, "tests_warned": 0, "tests_failed": 0, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_installments", "source_table": "installments_payments", "tests_run": 13, "tests_passed": 9, "tests_warned": 4, "tests_failed": 0, "dq_score_pct": 69.2}, {"layer": "staging", "model_name": "stg_previous_applications", "source_table": "previous_application", "tests_run": 18, "tests_passed": 18, "tests_warned": 0, "tests_failed": 0, "dq_score_pct": 100.0}, {"layer": "marts", "model_name": "dim_applicant", "source_table": "application_train", "tests_run": 2, "tests_passed": 2, "tests_warned": 0, "tests_failed": 0, "dq_score_pct": 100.0}, {"layer": "marts", "model_name": "fct_installment", "source_table": "installments_payments", "tests_run": 5, "tests_passed": 5, "tests_warned": 0, "tests_failed": 0, "dq_score_pct": 100.0}, {"layer": "marts", "model_name": "fct_loan_application", "source_table": "application_train", "tests_run": 3, "tests_passed": 3, "tests_warned": 0, "tests_failed": 0, "dq_score_pct": 100.0}], "heat": [{"layer": "marts", "model_name": "dim_applicant", "dq_dimension": "completeness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "marts", "model_name": "dim_applicant", "dq_dimension": "uniqueness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "marts", "model_name": "fct_installment", "dq_dimension": "consistency", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "marts", "model_name": "fct_installment", "dq_dimension": "referential_integrity", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "marts", "model_name": "fct_installment", "dq_dimension": "uniqueness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "marts", "model_name": "fct_installment", "dq_dimension": "validity", "tests_run": 2, "tests_passed": 2, "dq_score_pct": 100.0}, {"layer": "marts", "model_name": "fct_loan_application", "dq_dimension": "referential_integrity", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "marts", "model_name": "fct_loan_application", "dq_dimension": "uniqueness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "marts", "model_name": "fct_loan_application", "dq_dimension": "validity", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "application_train", "dq_dimension": "completeness", "tests_run": 7, "tests_passed": 5, "dq_score_pct": 71.4}, {"layer": "raw", "model_name": "application_train", "dq_dimension": "consistency", "tests_run": 5, "tests_passed": 4, "dq_score_pct": 80.0}, {"layer": "raw", "model_name": "application_train", "dq_dimension": "timeliness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "application_train", "dq_dimension": "uniqueness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "application_train", "dq_dimension": "validity", "tests_run": 8, "tests_passed": 4, "dq_score_pct": 50.0}, {"layer": "raw", "model_name": "bureau", "dq_dimension": "completeness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "bureau", "dq_dimension": "consistency", "tests_run": 2, "tests_passed": 1, "dq_score_pct": 50.0}, {"layer": "raw", "model_name": "bureau", "dq_dimension": "referential_integrity", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "bureau", "dq_dimension": "timeliness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "bureau", "dq_dimension": "uniqueness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "bureau", "dq_dimension": "validity", "tests_run": 5, "tests_passed": 1, "dq_score_pct": 20.0}, {"layer": "raw", "model_name": "bureau_balance", "dq_dimension": "consistency", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "bureau_balance", "dq_dimension": "referential_integrity", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "bureau_balance", "dq_dimension": "timeliness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "bureau_balance", "dq_dimension": "uniqueness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "bureau_balance", "dq_dimension": "validity", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "installments_payments", "dq_dimension": "completeness", "tests_run": 2, "tests_passed": 0, "dq_score_pct": 0.0}, {"layer": "raw", "model_name": "installments_payments", "dq_dimension": "consistency", "tests_run": 3, "tests_passed": 2, "dq_score_pct": 66.7}, {"layer": "raw", "model_name": "installments_payments", "dq_dimension": "referential_integrity", "tests_run": 2, "tests_passed": 1, "dq_score_pct": 50.0}, {"layer": "raw", "model_name": "installments_payments", "dq_dimension": "timeliness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "installments_payments", "dq_dimension": "uniqueness", "tests_run": 1, "tests_passed": 0, "dq_score_pct": 0.0}, {"layer": "raw", "model_name": "installments_payments", "dq_dimension": "validity", "tests_run": 2, "tests_passed": 2, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "previous_application", "dq_dimension": "completeness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "previous_application", "dq_dimension": "consistency", "tests_run": 2, "tests_passed": 2, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "previous_application", "dq_dimension": "referential_integrity", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "previous_application", "dq_dimension": "timeliness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "previous_application", "dq_dimension": "uniqueness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "raw", "model_name": "previous_application", "dq_dimension": "validity", "tests_run": 11, "tests_passed": 2, "dq_score_pct": 18.2}, {"layer": "staging", "model_name": "stg_applications", "dq_dimension": "completeness", "tests_run": 9, "tests_passed": 7, "dq_score_pct": 77.8}, {"layer": "staging", "model_name": "stg_applications", "dq_dimension": "consistency", "tests_run": 5, "tests_passed": 5, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_applications", "dq_dimension": "timeliness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_applications", "dq_dimension": "uniqueness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_applications", "dq_dimension": "validity", "tests_run": 8, "tests_passed": 8, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_bureau", "dq_dimension": "completeness", "tests_run": 2, "tests_passed": 2, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_bureau", "dq_dimension": "consistency", "tests_run": 2, "tests_passed": 1, "dq_score_pct": 50.0}, {"layer": "staging", "model_name": "stg_bureau", "dq_dimension": "referential_integrity", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_bureau", "dq_dimension": "timeliness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_bureau", "dq_dimension": "uniqueness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_bureau", "dq_dimension": "validity", "tests_run": 5, "tests_passed": 3, "dq_score_pct": 60.0}, {"layer": "staging", "model_name": "stg_bureau_balance", "dq_dimension": "completeness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_bureau_balance", "dq_dimension": "consistency", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_bureau_balance", "dq_dimension": "referential_integrity", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_bureau_balance", "dq_dimension": "timeliness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_bureau_balance", "dq_dimension": "uniqueness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_bureau_balance", "dq_dimension": "validity", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_installments", "dq_dimension": "completeness", "tests_run": 4, "tests_passed": 2, "dq_score_pct": 50.0}, {"layer": "staging", "model_name": "stg_installments", "dq_dimension": "consistency", "tests_run": 3, "tests_passed": 2, "dq_score_pct": 66.7}, {"layer": "staging", "model_name": "stg_installments", "dq_dimension": "referential_integrity", "tests_run": 2, "tests_passed": 1, "dq_score_pct": 50.0}, {"layer": "staging", "model_name": "stg_installments", "dq_dimension": "timeliness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_installments", "dq_dimension": "uniqueness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_installments", "dq_dimension": "validity", "tests_run": 2, "tests_passed": 2, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_previous_applications", "dq_dimension": "completeness", "tests_run": 2, "tests_passed": 2, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_previous_applications", "dq_dimension": "consistency", "tests_run": 2, "tests_passed": 2, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_previous_applications", "dq_dimension": "referential_integrity", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_previous_applications", "dq_dimension": "timeliness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_previous_applications", "dq_dimension": "uniqueness", "tests_run": 1, "tests_passed": 1, "dq_score_pct": 100.0}, {"layer": "staging", "model_name": "stg_previous_applications", "dq_dimension": "validity", "tests_run": 11, "tests_passed": 11, "dq_score_pct": 100.0}], "dimensions": ["completeness", "uniqueness", "validity", "consistency", "referential_integrity", "timeliness"], "before_after": [{"rule_id": "APP_AGE_RANGE", "source_table": "application_train", "dq_dimension": "validity", "raw_test_name": "raw_application_train__age_range", "staging_test_name": "stg_applications__age_range", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "APP_ANNUITY_LE_CREDIT", "source_table": "application_train", "dq_dimension": "consistency", "raw_test_name": "raw_application_train__annuity_le_credit", "staging_test_name": "stg_applications__annuity_le_credit", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "APP_ANNUITY_NOT_NULL", "source_table": "application_train", "dq_dimension": "completeness", "raw_test_name": "raw_application_train__annuity_not_null", "staging_test_name": "stg_applications__annuity_not_null", "raw_status": "warn", "staging_status": "warn", "raw_failures": 2, "staging_failures": 2, "failures_resolved": 0, "outcome": "still open (accepted)"}, {"rule_id": "APP_CONTRACT_TYPE_NOT_NULL", "source_table": "application_train", "dq_dimension": "completeness", "raw_test_name": "raw_application_train__contract_type_not_null", "staging_test_name": "stg_applications__contract_type_not_null", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "APP_CONTRACT_TYPE_VALID", "source_table": "application_train", "dq_dimension": "validity", "raw_test_name": "raw_application_train__contract_type_valid", "staging_test_name": "stg_applications__contract_type_valid", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "APP_CREDIT_NOT_NULL", "source_table": "application_train", "dq_dimension": "completeness", "raw_test_name": "raw_application_train__credit_not_null", "staging_test_name": "stg_applications__credit_not_null", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "APP_CREDIT_POSITIVE", "source_table": "application_train", "dq_dimension": "validity", "raw_test_name": "raw_application_train__credit_positive", "staging_test_name": "stg_applications__credit_positive", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "APP_DAYS_EMPLOYED_VALID", "source_table": "application_train", "dq_dimension": "validity", "raw_test_name": "raw_application_train__days_employed_sign", "staging_test_name": "stg_applications__days_employed_sign", "raw_status": "warn", "staging_status": "pass", "raw_failures": 8996, "staging_failures": 0, "failures_resolved": 8996, "outcome": "resolved by cleansing"}, {"rule_id": "APP_DAYS_ID_PUBLISH_SIGN", "source_table": "application_train", "dq_dimension": "consistency", "raw_test_name": "raw_application_train__days_id_publish_sign", "staging_test_name": "stg_applications__days_id_publish_sign", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "APP_DAYS_PHONE_CHANGE_SIGN", "source_table": "application_train", "dq_dimension": "consistency", "raw_test_name": "raw_application_train__days_phone_change_sign", "staging_test_name": "stg_applications__days_phone_change_sign", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "APP_DAYS_REGISTRATION_SIGN", "source_table": "application_train", "dq_dimension": "consistency", "raw_test_name": "raw_application_train__days_registration_sign", "staging_test_name": "stg_applications__days_registration_sign", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "APP_DAYS_SIGN_CONVENTION", "source_table": "application_train", "dq_dimension": "consistency", "raw_test_name": "raw_application_days_sign_convention", "staging_test_name": "stg_applications_days_sign_convention", "raw_status": "warn", "staging_status": "pass", "raw_failures": 8996, "staging_failures": 0, "failures_resolved": 8996, "outcome": "resolved by cleansing"}, {"rule_id": "APP_FAMILY_STATUS_VALID", "source_table": "application_train", "dq_dimension": "validity", "raw_test_name": "raw_application_train__family_status_valid", "staging_test_name": "stg_applications__family_status_valid", "raw_status": "warn", "staging_status": "pass", "raw_failures": 1, "staging_failures": 0, "failures_resolved": 1, "outcome": "resolved by cleansing"}, {"rule_id": "APP_GENDER_VALID", "source_table": "application_train", "dq_dimension": "validity", "raw_test_name": "raw_application_train__gender_valid", "staging_test_name": "stg_applications__gender_valid", "raw_status": "warn", "staging_status": "pass", "raw_failures": 1, "staging_failures": 0, "failures_resolved": 1, "outcome": "resolved by cleansing"}, {"rule_id": "APP_GOODS_PRICE_NULL_PCT", "source_table": "application_train", "dq_dimension": "completeness", "raw_test_name": "raw_application_train__goods_price_null_pct", "staging_test_name": "stg_applications__goods_price_null_pct", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "APP_ID_NOT_NULL", "source_table": "application_train", "dq_dimension": "completeness", "raw_test_name": "raw_application_train__id_not_null", "staging_test_name": "stg_applications__id_not_null", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "APP_ID_UNIQUE", "source_table": "application_train", "dq_dimension": "uniqueness", "raw_test_name": "raw_application_train__id_unique", "staging_test_name": "stg_applications__id_unique", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "APP_INCOME_POSITIVE", "source_table": "application_train", "dq_dimension": "validity", "raw_test_name": "raw_application_train__income_positive", "staging_test_name": "stg_applications__income_positive", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "APPLICATION_TRAIN_FRESH", "source_table": "application_train", "dq_dimension": "timeliness", "raw_test_name": "raw_application_train__recency", "staging_test_name": "stg_applications__recency", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "APP_OCCUPATION_NULL_PCT", "source_table": "application_train", "dq_dimension": "completeness", "raw_test_name": "raw_application_train__occupation_null_pct", "staging_test_name": "stg_applications__occupation_null_pct", "raw_status": "warn", "staging_status": "warn", "raw_failures": 1, "staging_failures": 1, "failures_resolved": 0, "outcome": "still open (accepted)"}, {"rule_id": "APP_ORG_NO_UNKNOWN_CODE", "source_table": "application_train", "dq_dimension": "validity", "raw_test_name": "raw_application_train__organization_no_xna", "staging_test_name": "stg_applications__organization_no_xna", "raw_status": "warn", "staging_status": "pass", "raw_failures": 8996, "staging_failures": 0, "failures_resolved": 8996, "outcome": "resolved by cleansing"}, {"rule_id": "APP_ROW_COUNT", "source_table": "application_train", "dq_dimension": "completeness", "raw_test_name": "raw_application_train__row_count", "staging_test_name": "stg_applications__row_count", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "BUR_APPLICANT_EXISTS", "source_table": "bureau", "dq_dimension": "referential_integrity", "raw_test_name": "raw_bureau__applicant_exists", "staging_test_name": "stg_bureau__applicant_exists", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "BUR_CLOSED_AFTER_OPENED", "source_table": "bureau", "dq_dimension": "consistency", "raw_test_name": "raw_bureau__enddate_fact_after_start", "staging_test_name": "stg_bureau__enddate_fact_after_start", "raw_status": "warn", "staging_status": "warn", "raw_failures": 3, "staging_failures": 3, "failures_resolved": 0, "outcome": "still open (accepted)"}, {"rule_id": "BUR_DAYS_CREDIT_SIGN", "source_table": "bureau", "dq_dimension": "consistency", "raw_test_name": "raw_bureau__days_credit_sign", "staging_test_name": "stg_bureau__days_credit_sign", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "BUR_DEBT_NON_NEGATIVE", "source_table": "bureau", "dq_dimension": "validity", "raw_test_name": "raw_bureau__debt_non_negative", "staging_test_name": "stg_bureau__debt_non_negative", "raw_status": "warn", "staging_status": "warn", "raw_failures": 1356, "staging_failures": 1356, "failures_resolved": 0, "outcome": "still open (accepted)"}, {"rule_id": "BUREAU_FRESH", "source_table": "bureau", "dq_dimension": "timeliness", "raw_test_name": "raw_bureau__recency", "staging_test_name": "stg_bureau__recency", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "BUR_ENDDATE_PLAUSIBLE", "source_table": "bureau", "dq_dimension": "validity", "raw_test_name": "raw_bureau__enddate_plausible", "staging_test_name": "stg_bureau__enddate_plausible", "raw_status": "warn", "staging_status": "pass", "raw_failures": 20, "staging_failures": 0, "failures_resolved": 20, "outcome": "resolved by cleansing"}, {"rule_id": "BUR_ID_NOT_NULL", "source_table": "bureau", "dq_dimension": "completeness", "raw_test_name": "raw_bureau__id_not_null", "staging_test_name": "stg_bureau__id_not_null", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "BUR_ID_UNIQUE", "source_table": "bureau", "dq_dimension": "uniqueness", "raw_test_name": "raw_bureau__id_unique", "staging_test_name": "stg_bureau__id_unique", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "BUR_LIMIT_NON_NEGATIVE", "source_table": "bureau", "dq_dimension": "validity", "raw_test_name": "raw_bureau__limit_non_negative", "staging_test_name": "stg_bureau__limit_non_negative", "raw_status": "warn", "staging_status": "warn", "raw_failures": 56, "staging_failures": 56, "failures_resolved": 0, "outcome": "still open (accepted)"}, {"rule_id": "BUR_STATUS_VALID", "source_table": "bureau", "dq_dimension": "validity", "raw_test_name": "raw_bureau__credit_active_valid", "staging_test_name": "stg_bureau__credit_active_valid", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "BUR_UPDATE_PLAUSIBLE", "source_table": "bureau", "dq_dimension": "validity", "raw_test_name": "raw_bureau__update_plausible", "staging_test_name": "stg_bureau__update_plausible", "raw_status": "warn", "staging_status": "pass", "raw_failures": 21, "staging_failures": 0, "failures_resolved": 21, "outcome": "resolved by cleansing"}, {"rule_id": "BB_BUREAU_EXISTS", "source_table": "bureau_balance", "dq_dimension": "referential_integrity", "raw_test_name": "raw_bureau_balance__bureau_exists", "staging_test_name": "stg_bureau_balance__bureau_exists", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "BB_KEY_UNIQUE", "source_table": "bureau_balance", "dq_dimension": "uniqueness", "raw_test_name": "raw_bureau_balance__key_unique", "staging_test_name": "stg_bureau_balance__key_unique", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "BB_MONTHS_SIGN", "source_table": "bureau_balance", "dq_dimension": "consistency", "raw_test_name": "raw_bureau_balance__months_sign", "staging_test_name": "stg_bureau_balance__months_sign", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "BB_STATUS_VALID", "source_table": "bureau_balance", "dq_dimension": "validity", "raw_test_name": "raw_bureau_balance__status_valid", "staging_test_name": "stg_bureau_balance__status_valid", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "BUREAU_BALANCE_FRESH", "source_table": "bureau_balance", "dq_dimension": "timeliness", "raw_test_name": "raw_bureau_balance__recency", "staging_test_name": "stg_bureau_balance__recency", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "INSTALLMENTS_PAYMENTS_FRESH", "source_table": "installments_payments", "dq_dimension": "timeliness", "raw_test_name": "raw_installments_payments__recency", "staging_test_name": "stg_installments__recency", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "INST_APPLICANT_EXISTS", "source_table": "installments_payments", "dq_dimension": "referential_integrity", "raw_test_name": "raw_installments_payments__applicant_exists", "staging_test_name": "stg_installments__applicant_exists", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "INST_DUE_DATE_SIGN", "source_table": "installments_payments", "dq_dimension": "consistency", "raw_test_name": "raw_installments_payments__due_date_sign", "staging_test_name": "stg_installments__due_date_sign", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "INST_ENTRY_DATE_NOT_NULL", "source_table": "installments_payments", "dq_dimension": "completeness", "raw_test_name": "raw_installments_payments__entry_date_not_null", "staging_test_name": "stg_installments__entry_date_not_null", "raw_status": "warn", "staging_status": "warn", "raw_failures": 516, "staging_failures": 516, "failures_resolved": 0, "outcome": "still open (accepted)"}, {"rule_id": "INST_ENTRY_DATE_SIGN", "source_table": "installments_payments", "dq_dimension": "consistency", "raw_test_name": "raw_installments_payments__entry_date_sign", "staging_test_name": "stg_installments__entry_date_sign", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "INST_INSTALMENT_NON_NEGATIVE", "source_table": "installments_payments", "dq_dimension": "validity", "raw_test_name": "raw_installments_payments__instalment_non_negative", "staging_test_name": "stg_installments__instalment_non_negative", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "INST_KEY_UNIQUE", "source_table": "installments_payments", "dq_dimension": "uniqueness", "raw_test_name": "raw_installments_payments__key_unique", "staging_test_name": "stg_installments__key_unique", "raw_status": "warn", "staging_status": "pass", "raw_failures": 89539, "staging_failures": 0, "failures_resolved": 89539, "outcome": "resolved by cleansing"}, {"rule_id": "INST_PAYMENT_LE_2X_INSTALMENT", "source_table": "installments_payments", "dq_dimension": "consistency", "raw_test_name": "raw_installments_payments__payment_not_hugely_above_instalment", "staging_test_name": "stg_installments__payment_not_hugely_above_instalment", "raw_status": "warn", "staging_status": "warn", "raw_failures": 11708, "staging_failures": 11708, "failures_resolved": 0, "outcome": "still open (accepted)"}, {"rule_id": "INST_PAYMENT_NON_NEGATIVE", "source_table": "installments_payments", "dq_dimension": "validity", "raw_test_name": "raw_installments_payments__payment_non_negative", "staging_test_name": "stg_installments__payment_non_negative", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "INST_PAYMENT_NOT_NULL", "source_table": "installments_payments", "dq_dimension": "completeness", "raw_test_name": "raw_installments_payments__payment_not_null", "staging_test_name": "stg_installments__payment_not_null", "raw_status": "warn", "staging_status": "warn", "raw_failures": 516, "staging_failures": 516, "failures_resolved": 0, "outcome": "still open (accepted)"}, {"rule_id": "INST_PREVIOUS_EXISTS", "source_table": "installments_payments", "dq_dimension": "referential_integrity", "raw_test_name": "raw_installments_payments__previous_exists", "staging_test_name": "stg_installments__previous_exists", "raw_status": "warn", "staging_status": "warn", "raw_failures": 162149, "staging_failures": 162149, "failures_resolved": 0, "outcome": "still open (accepted)"}, {"rule_id": "PREV_AMOUNT_NON_NEGATIVE", "source_table": "previous_application", "dq_dimension": "validity", "raw_test_name": "raw_previous_application__amount_non_negative", "staging_test_name": "stg_previous_applications__amount_non_negative", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "PREV_ANNUITY_LE_CREDIT", "source_table": "previous_application", "dq_dimension": "consistency", "raw_test_name": "raw_previous_application__annuity_le_credit", "staging_test_name": "stg_previous_applications__annuity_le_credit", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "PREV_APPLICANT_EXISTS", "source_table": "previous_application", "dq_dimension": "referential_integrity", "raw_test_name": "raw_previous_application__applicant_exists", "staging_test_name": "stg_previous_applications__applicant_exists", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "PREV_CONTRACT_TYPE_VALID", "source_table": "previous_application", "dq_dimension": "validity", "raw_test_name": "raw_previous_application__contract_type_valid", "staging_test_name": "stg_previous_applications__contract_type_valid", "raw_status": "warn", "staging_status": "pass", "raw_failures": 1, "staging_failures": 0, "failures_resolved": 1, "outcome": "resolved by cleansing"}, {"rule_id": "PREV_DAYS_DECISION_SIGN", "source_table": "previous_application", "dq_dimension": "consistency", "raw_test_name": "raw_previous_application__days_decision_sign", "staging_test_name": "stg_previous_applications__days_decision_sign", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "PREV_DAYS_FIRST_DRAWING_VALID", "source_table": "previous_application", "dq_dimension": "validity", "raw_test_name": "raw_previous_application__days_first_drawing_valid", "staging_test_name": "stg_previous_applications__days_first_drawing_valid", "raw_status": "warn", "staging_status": "pass", "raw_failures": 129988, "staging_failures": 0, "failures_resolved": 129988, "outcome": "resolved by cleansing"}, {"rule_id": "PREV_DAYS_FIRST_DUE_VALID", "source_table": "previous_application", "dq_dimension": "validity", "raw_test_name": "raw_previous_application__days_first_due_valid", "staging_test_name": "stg_previous_applications__days_first_due_valid", "raw_status": "warn", "staging_status": "pass", "raw_failures": 5516, "staging_failures": 0, "failures_resolved": 5516, "outcome": "resolved by cleansing"}, {"rule_id": "PREV_DAYS_LAST_DUE_1ST_VERSION_VALID", "source_table": "previous_application", "dq_dimension": "validity", "raw_test_name": "raw_previous_application__days_last_due_1st_version_valid", "staging_test_name": "stg_previous_applications__days_last_due_1st_version_valid", "raw_status": "warn", "staging_status": "pass", "raw_failures": 12874, "staging_failures": 0, "failures_resolved": 12874, "outcome": "resolved by cleansing"}, {"rule_id": "PREV_DAYS_LAST_DUE_VALID", "source_table": "previous_application", "dq_dimension": "validity", "raw_test_name": "raw_previous_application__days_last_due_valid", "staging_test_name": "stg_previous_applications__days_last_due_valid", "raw_status": "warn", "staging_status": "pass", "raw_failures": 29454, "staging_failures": 0, "failures_resolved": 29454, "outcome": "resolved by cleansing"}, {"rule_id": "PREV_DAYS_TERMINATION_VALID", "source_table": "previous_application", "dq_dimension": "validity", "raw_test_name": "raw_previous_application__days_termination_valid", "staging_test_name": "stg_previous_applications__days_termination_valid", "raw_status": "warn", "staging_status": "pass", "raw_failures": 31603, "staging_failures": 0, "failures_resolved": 31603, "outcome": "resolved by cleansing"}, {"rule_id": "PREV_ID_NOT_NULL", "source_table": "previous_application", "dq_dimension": "completeness", "raw_test_name": "raw_previous_application__id_not_null", "staging_test_name": "stg_previous_applications__id_not_null", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "PREV_ID_UNIQUE", "source_table": "previous_application", "dq_dimension": "uniqueness", "raw_test_name": "raw_previous_application__id_unique", "staging_test_name": "stg_previous_applications__id_unique", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "PREVIOUS_APPLICATION_FRESH", "source_table": "previous_application", "dq_dimension": "timeliness", "raw_test_name": "raw_previous_application__recency", "staging_test_name": "stg_previous_applications__recency", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}, {"rule_id": "PREV_PAYMENT_TYPE_NO_UNKNOWN_CODE", "source_table": "previous_application", "dq_dimension": "validity", "raw_test_name": "raw_previous_application__payment_type_no_unknown", "staging_test_name": "stg_previous_applications__payment_type_no_unknown", "raw_status": "warn", "staging_status": "pass", "raw_failures": 84798, "staging_failures": 0, "failures_resolved": 84798, "outcome": "resolved by cleansing"}, {"rule_id": "PREV_PURPOSE_NO_UNKNOWN_CODE", "source_table": "previous_application", "dq_dimension": "validity", "raw_test_name": "raw_previous_application__loan_purpose_no_unknown", "staging_test_name": "stg_previous_applications__loan_purpose_no_unknown", "raw_status": "warn", "staging_status": "pass", "raw_failures": 220043, "staging_failures": 0, "failures_resolved": 220043, "outcome": "resolved by cleansing"}, {"rule_id": "PREV_SELLERPLACE_NO_SENTINEL", "source_table": "previous_application", "dq_dimension": "validity", "raw_test_name": "raw_previous_application__sellerplace_no_sentinel", "staging_test_name": "stg_previous_applications__sellerplace_no_sentinel", "raw_status": "warn", "staging_status": "pass", "raw_failures": 102451, "staging_failures": 0, "failures_resolved": 102451, "outcome": "resolved by cleansing"}, {"rule_id": "PREV_STATUS_VALID", "source_table": "previous_application", "dq_dimension": "validity", "raw_test_name": "raw_previous_application__status_valid", "staging_test_name": "stg_previous_applications__status_valid", "raw_status": "pass", "staging_status": "pass", "raw_failures": 0, "staging_failures": 0, "failures_resolved": 0, "outcome": "clean in both"}], "top_failing": [{"test_name": "raw_previous_application__loan_purpose_no_unknown", "layer": "raw", "model_name": "previous_application", "dq_dimension": "validity", "severity": "warn", "status": "warn", "failures": 220043, "rows_checked": 229715}, {"test_name": "raw_installments_payments__previous_exists", "layer": "raw", "model_name": "installments_payments", "dq_dimension": "referential_integrity", "severity": "warn", "status": "warn", "failures": 162149, "rows_checked": 1881881}, {"test_name": "stg_installments__previous_exists", "layer": "staging", "model_name": "stg_installments", "dq_dimension": "referential_integrity", "severity": "warn", "status": "warn", "failures": 162149, "rows_checked": 1881881}, {"test_name": "raw_previous_application__days_first_drawing_valid", "layer": "raw", "model_name": "previous_application", "dq_dimension": "validity", "severity": "warn", "status": "warn", "failures": 129988, "rows_checked": 229715}, {"test_name": "raw_previous_application__sellerplace_no_sentinel", "layer": "raw", "model_name": "previous_application", "dq_dimension": "validity", "severity": "warn", "status": "warn", "failures": 102451, "rows_checked": 229715}, {"test_name": "raw_installments_payments__key_unique", "layer": "raw", "model_name": "installments_payments", "dq_dimension": "uniqueness", "severity": "warn", "status": "warn", "failures": 89539, "rows_checked": 1881881}, {"test_name": "raw_previous_application__payment_type_no_unknown", "layer": "raw", "model_name": "previous_application", "dq_dimension": "validity", "severity": "warn", "status": "warn", "failures": 84798, "rows_checked": 229715}, {"test_name": "raw_previous_application__days_termination_valid", "layer": "raw", "model_name": "previous_application", "dq_dimension": "validity", "severity": "warn", "status": "warn", "failures": 31603, "rows_checked": 229715}, {"test_name": "raw_previous_application__days_last_due_valid", "layer": "raw", "model_name": "previous_application", "dq_dimension": "validity", "severity": "warn", "status": "warn", "failures": 29454, "rows_checked": 229715}, {"test_name": "raw_previous_application__days_last_due_1st_version_valid", "layer": "raw", "model_name": "previous_application", "dq_dimension": "validity", "severity": "warn", "status": "warn", "failures": 12874, "rows_checked": 229715}, {"test_name": "raw_installments_payments__payment_not_hugely_above_instalment", "layer": "raw", "model_name": "installments_payments", "dq_dimension": "consistency", "severity": "warn", "status": "warn", "failures": 11708, "rows_checked": 1881881}, {"test_name": "stg_installments__payment_not_hugely_above_instalment", "layer": "staging", "model_name": "stg_installments", "dq_dimension": "consistency", "severity": "warn", "status": "warn", "failures": 11708, "rows_checked": 1881881}, {"test_name": "raw_application_train__organization_no_xna", "layer": "raw", "model_name": "application_train", "dq_dimension": "validity", "severity": "warn", "status": "warn", "failures": 8996, "rows_checked": 50000}, {"test_name": "raw_application_days_sign_convention", "layer": "raw", "model_name": "application_train", "dq_dimension": "consistency", "severity": "warn", "status": "warn", "failures": 8996, "rows_checked": 50000}, {"test_name": "raw_application_train__days_employed_sign", "layer": "raw", "model_name": "application_train", "dq_dimension": "validity", "severity": "warn", "status": "warn", "failures": 8996, "rows_checked": 50000}], "trend": [{"run_number": 1, "run_at": "2026-10-25T15:11:33.509Z", "layer": "marts", "tests_run": 10.0, "tests_passed": 10.0, "dq_score_pct": 100.0}, {"run_number": 1, "run_at": "2026-10-25T15:11:33.509Z", "layer": "raw", "tests_run": 66.0, "tests_passed": 40.0, "dq_score_pct": 60.6}, {"run_number": 1, "run_at": "2026-10-25T15:11:33.509Z", "layer": "staging", "tests_run": 73.0, "tests_passed": 64.0, "dq_score_pct": 87.7}, {"run_number": 2, "run_at": "2026-10-25T15:13:54.733Z", "layer": "marts", "tests_run": 10.0, "tests_passed": 10.0, "dq_score_pct": 100.0}, {"run_number": 2, "run_at": "2026-10-25T15:13:54.733Z", "layer": "raw", "tests_run": 66.0, "tests_passed": 40.0, "dq_score_pct": 60.6}, {"run_number": 2, "run_at": "2026-10-25T15:13:54.733Z", "layer": "staging", "tests_run": 73.0, "tests_passed": 64.0, "dq_score_pct": 87.7}], "load": [{"table_name": "application_train", "row_count": 50000, "column_count": 122, "loaded_at": "2026-10-25T15:12:02.976Z", "status": "success", "batch_id": "20261025T151202_6e6353"}, {"table_name": "bureau", "row_count": 237076, "column_count": 17, "loaded_at": "2026-10-25T15:12:05.742Z", "status": "success", "batch_id": "20261025T151202_6e6353"}, {"table_name": "bureau_balance", "row_count": 2383470, "column_count": 3, "loaded_at": "2026-10-25T15:12:10.971Z", "status": "success", "batch_id": "20261025T151202_6e6353"}, {"table_name": "previous_application", "row_count": 229715, "column_count": 37, "loaded_at": "2026-10-25T15:12:28.959Z", "status": "success", "batch_id": "20261025T151202_6e6353"}, {"table_name": "installments_payments", "row_count": 1881881, "column_count": 8, "loaded_at": "2026-10-25T15:12:37.861Z", "status": "success", "batch_id": "20261025T151202_6e6353"}]};
+const fmt = n => n == null ? "" : Number(n).toLocaleString("en-US");
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const LAYER_VAR = { raw: "--series-raw", staging: "--series-staging", marts: "--series-marts" };
+const DIM_LABEL = { completeness: "Completeness", uniqueness: "Uniqueness", validity: "Validity",
+  consistency: "Consistency", referential_integrity: "Ref. integrity", timeliness: "Timeliness" };
+
+function el(tag, attrs = {}, html = "") {
+  const e = document.createElement(tag);
+  Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, v));
+  e.innerHTML = html;
+  return e;
+}
+
+function renderStatic() {
+  const k = DATA.kpi;
+  document.getElementById("meta").textContent =
+    `Latest test run ${DATA.latest_run_at.replace("T", " ").slice(0, 16)} UTC, ${DATA.run_count} runs in history, data batch ${k.batch_id}. Generated ${DATA.generated_at}.`;
+  const tiles = [
+    ["DQ score, raw", `${k.raw_score}%`, "all raw tables"],
+    ["DQ score, staging", `${k.staging_score}%`, "after cleansing"],
+    ["Tests run", fmt(k.tests), `${k.passed} pass, ${k.warned} warn, ${k.failed} fail`],
+    ["Rules resolved", `${k.rules_resolved} / ${k.rules_resolved + k.rules_open}`, `of rules failing on raw; ${k.rules_open} accepted`],
+    ["Rows loaded", fmt(k.rows_loaded), "5 raw tables"],
+  ];
+  const kpis = document.getElementById("kpis");
+  tiles.forEach(([label, value, note]) =>
+    kpis.appendChild(el("div", { class: "kpi" },
+      `<div class="label">${label}</div><div class="value">${value}</div><div class="note">${note}</div>`)));
+
+  const status = s => `<span class="status ${s}">${s}</span>`;
+  const table = (cols, rows) => {
+    const head = cols.map(c => `<th class="${c.num ? "num" : ""}">${c.label}</th>`).join("");
+    const body = rows.map(r => "<tr>" + cols.map(c =>
+      `<td class="${c.num ? "num" : ""}">${c.render ? c.render(r[c.key], r) : (c.num ? fmt(r[c.key]) : (r[c.key] ?? ""))}</td>`
+    ).join("") + "</tr>").join("");
+    return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  };
+
+  document.getElementById("ruleTable").innerHTML = table([
+    { key: "rule_id", label: "Rule" }, { key: "source_table", label: "Table" },
+    { key: "dq_dimension", label: "Dimension", render: v => DIM_LABEL[v] },
+    { key: "raw_status", label: "Raw", render: status }, { key: "raw_failures", label: "Raw failures", num: true },
+    { key: "staging_status", label: "Staging", render: status },
+    { key: "staging_failures", label: "Staging failures", num: true }, { key: "outcome", label: "Outcome" },
+  ], DATA.before_after.filter(r => r.outcome !== "clean in both"));
+
+  document.getElementById("failingTable").innerHTML = table([
+    { key: "test_name", label: "Test" }, { key: "layer", label: "Layer" },
+    { key: "dq_dimension", label: "Dimension", render: v => DIM_LABEL[v] },
+    { key: "status", label: "Status", render: status },
+    { key: "failures", label: "Failures", num: true }, { key: "rows_checked", label: "Rows checked", num: true },
+  ], DATA.top_failing);
+
+  document.getElementById("loadTable").innerHTML = table([
+    { key: "table_name", label: "Table" }, { key: "row_count", label: "Rows", num: true },
+    { key: "column_count", label: "Columns", num: true },
+    { key: "status", label: "Status", render: v => status(v === "success" ? "pass" : "fail").replace(/>(pass|fail)</, `>${v}<`) },
+    { key: "loaded_at", label: "Loaded at (UTC)", render: v => v.replace("T", " ").slice(0, 19) },
+  ], DATA.load);
+}
+
+function baseLayout(extra = {}) {
+  const font = { family: getComputedStyle(document.body).fontFamily, size: 12, color: css("--text-secondary") };
+  return Object.assign({
+    paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)", font,
+    margin: { l: 10, r: 16, t: 8, b: 36 }, showlegend: false, barcornerradius: 4,
+    hoverlabel: { bgcolor: css("--surface-1"), bordercolor: css("--border"), font: { color: css("--text-primary") } },
+  }, extra);
+}
+const axis = (extra = {}) => Object.assign({
+  gridcolor: css("--grid"), zerolinecolor: css("--border"), linecolor: css("--border"),
+  tickfont: { color: css("--text-secondary") }, automargin: true,
+}, extra);
+const CONFIG = { displayModeBar: false, responsive: true };
+
+function renderCharts() {
+  // Before vs after: raw table vs its staging model.
+  const raw = DATA.overall.filter(r => r.layer === "raw");
+  const stg = DATA.overall.filter(r => r.layer === "staging");
+  const tables = raw.map(r => r.source_table);
+  const pick = (rows, t) => rows.find(r => r.source_table === t) || {};
+  const baTrace = (rows, layer, name) => ({
+    type: "bar", orientation: "h", name, y: tables, x: tables.map(t => pick(rows, t).dq_score_pct),
+    marker: { color: css(LAYER_VAR[layer]), line: { color: css("--surface-1"), width: 2 } },
+    text: tables.map(t => `${pick(rows, t).dq_score_pct}%`), textposition: "outside", cliponaxis: false,
+    textfont: { color: css("--text-secondary") },
+    customdata: tables.map(t => [pick(rows, t).model_name, pick(rows, t).tests_passed, pick(rows, t).tests_run]),
+    hovertemplate: `<b>%{customdata[0]}</b> (${name})<br>%{x}% of tests pass (%{customdata[1]} / %{customdata[2]})<extra></extra>`,
+  });
+  Plotly.react("beforeAfter", [baTrace(raw, "raw", "raw"), baTrace(stg, "staging", "staging")], baseLayout({
+    barmode: "group", bargap: 0.3, bargroupgap: 0.08, height: 330,
+    xaxis: axis({ range: [0, 112], tickvals: [0, 25, 50, 75, 100], ticktext: ["0%", "25%", "50%", "75%", "100%"] }),
+    yaxis: axis({ autorange: "reversed", gridcolor: "rgba(0,0,0,0)", tickfont: { color: css("--text-primary") } }),
+  }), CONFIG);
+
+  // Overall score per table, colored by layer.
+  const ov = DATA.overall;
+  Plotly.react("overall", [{
+    type: "bar", orientation: "h", y: ov.map(r => r.model_name), x: ov.map(r => r.dq_score_pct),
+    marker: { color: ov.map(r => css(LAYER_VAR[r.layer])), line: { color: css("--surface-1"), width: 2 } },
+    text: ov.map(r => `${r.dq_score_pct}%`), textposition: "outside", cliponaxis: false,
+    textfont: { color: css("--text-secondary") },
+    customdata: ov.map(r => [r.layer, r.tests_passed, r.tests_run, r.tests_warned]),
+    hovertemplate: "<b>%{y}</b> (%{customdata[0]})<br>%{x}% pass: %{customdata[1]} / %{customdata[2]}, %{customdata[3]} warn<extra></extra>",
+  }], baseLayout({
+    height: 420, bargap: 0.35,
+    xaxis: axis({ range: [0, 115], tickvals: [0, 25, 50, 75, 100], ticktext: ["0%", "25%", "50%", "75%", "100%"] }),
+    yaxis: axis({ autorange: "reversed", gridcolor: "rgba(0,0,0,0)" }),
+  }), CONFIG);
+
+  // Trend across runs, one line per layer.
+  const traces = ["raw", "staging", "marts"].map(layer => {
+    const rows = DATA.trend.filter(r => r.layer === layer);
+    return {
+      type: "scatter", mode: "lines+markers", name: layer, x: rows.map(r => `Run ${r.run_number}`),
+      y: rows.map(r => r.dq_score_pct),
+      line: { color: css(LAYER_VAR[layer]), width: 2 },
+      marker: { size: 8, color: css(LAYER_VAR[layer]), line: { color: css("--surface-1"), width: 2 } },
+      customdata: rows.map(r => [r.tests_passed, r.tests_run, r.run_at.replace("T", " ").slice(0, 16)]),
+      hovertemplate: `<b>${layer}</b> %{x}<br>%{y}% (%{customdata[0]} / %{customdata[1]})<br>%{customdata[2]} UTC<extra></extra>`,
+    };
+  });
+  Plotly.react("trend", traces, baseLayout({
+    height: 420, hovermode: "x unified",
+    xaxis: axis({ type: "category", gridcolor: "rgba(0,0,0,0)" }),
+    yaxis: axis({ range: [0, 105], ticksuffix: "%", dtick: 25 }),
+  }), CONFIG);
+
+  // Heatmap: rows = models, columns = dimensions.
+  const models = DATA.overall.map(r => r.model_name);
+  const dims = DATA.dimensions;
+  const cell = (m, d) => DATA.heat.find(r => r.model_name === m && r.dq_dimension === d);
+  const z = models.map(m => dims.map(d => (cell(m, d) || {}).dq_score_pct ?? null));
+  const text = models.map(m => dims.map(d => { const c = cell(m, d); return c ? `${c.tests_passed}/${c.tests_run}` : ""; }));
+  const dark = document.documentElement.dataset.theme === "dark" ||
+    (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+  const annotations = [];
+  models.forEach((m, i) => dims.forEach((d, j) => {
+    const v = z[i][j];
+    if (v == null) return;
+    annotations.push({ x: DIM_LABEL[d], y: m, text: text[i][j], showarrow: false,
+      font: { size: 11, color: (v >= 55) !== dark ? "#ffffff" : "#0b0b0b" } });
+  }));
+  Plotly.react("heat", [{
+    type: "heatmap", z, x: dims.map(d => DIM_LABEL[d]), y: models, text, xgap: 2, ygap: 2, zmin: 0, zmax: 100,
+    colorscale: [[0, css("--seq-low")], [1, css("--seq-high")]],
+    colorbar: { ticksuffix: "%", thickness: 10, outlinewidth: 0, tickfont: { color: css("--text-secondary") } },
+    hovertemplate: "<b>%{y}</b><br>%{x}: %{z}% pass (%{text})<extra></extra>", hoverongaps: false,
+  }], baseLayout({
+    height: 470, annotations,
+    xaxis: axis({ side: "top", gridcolor: "rgba(0,0,0,0)", tickfont: { color: css("--text-primary") } }),
+    yaxis: axis({ autorange: "reversed", gridcolor: "rgba(0,0,0,0)" }),
+    margin: { l: 10, r: 10, t: 30, b: 10 },
+  }), CONFIG);
+
+  // Top failing rules, single series, log scale.
+  const tf = [...DATA.top_failing].reverse();
+  Plotly.react("failing", [{
+    type: "bar", orientation: "h", y: tf.map(r => r.test_name), x: tf.map(r => r.failures),
+    marker: { color: css("--series-raw"), line: { color: css("--surface-1"), width: 2 } },
+    text: tf.map(r => fmt(r.failures)), textposition: "outside", cliponaxis: false,
+    textfont: { color: css("--text-secondary") },
+    customdata: tf.map(r => [r.layer, DIM_LABEL[r.dq_dimension], fmt(r.rows_checked), r.status]),
+    hovertemplate: "<b>%{y}</b><br>%{customdata[0]}, %{customdata[1]}, %{customdata[3]}<br>%{x:,} of %{customdata[2]} rows<extra></extra>",
+  }], baseLayout({
+    height: 520, bargap: 0.35,
+    xaxis: axis({ type: "log", dtick: 1, title: { text: "records returned (log)", font: { color: css("--text-muted") } } }),
+    yaxis: axis({ gridcolor: "rgba(0,0,0,0)", tickfont: { size: 11, color: css("--text-primary") } }),
+    margin: { l: 10, r: 60, t: 8, b: 44 },
+  }), CONFIG);
+}
+
+renderStatic();
+renderCharts();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderCharts);
+new MutationObserver(renderCharts).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+</script>
+</body>
+</html>

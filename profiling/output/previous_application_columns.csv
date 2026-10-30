@@ -1,0 +1,38 @@
+column,data_type,null_count,null_pct,distinct_count,min,max,top_5_values
+SK_ID_PREV,bigint,0,0.0,229715,1000004,2845378,1000004 (1); 1000007 (1); 1000025 (1); 1000033 (1); 1000051 (1)
+SK_ID_CURR,bigint,0,0.0,47320,100002,456247,265681 (73); 206783 (67); 382179 (64); 198355 (63); 238250 (61)
+NAME_CONTRACT_TYPE,text,0,0.0,4,Cash loans,XNA,"Consumer loans (102,222); Cash loans (100,942); Revolving loans (26,492); XNA (59)"
+AMT_ANNUITY,double precision,49827,21.69,100014,0,418058.145,"2250 (4,205); 11250 (1,963); 6750 (1,900); 9000 (1,741); 22500 (1,622)"
+AMT_APPLICATION,double precision,0,0.0,34120,0,4455000,"0 (52,747); 45000 (6,399); 225000 (5,819); 135000 (5,697); 450000 (5,321)"
+AMT_CREDIT,double precision,0,0.0,42324,0,4104351,"0 (44,854); 45000 (4,622); 225000 (2,883); 450000 (2,748); 135000 (2,640)"
+AMT_DOWN_PAYMENT,double precision,121197,52.76,9742,0,1404000,"0 (51,330); 4500 (2,975); 9000 (2,039); 13500 (1,429); 22500 (1,090)"
+AMT_GOODS_PRICE,double precision,51852,22.57,34120,0,4455000,"45000 (6,399); 225000 (5,821); 135000 (5,695); 450000 (5,326); 90000 (4,035)"
+WEEKDAY_APPR_PROCESS_START,text,0,0.0,7,FRIDAY,WEDNESDAY,"TUESDAY (35,270); WEDNESDAY (35,001); FRIDAY (34,679); MONDAY (34,466); THURSDAY (34,392)"
+HOUR_APPR_PROCESS_START,bigint,0,0.0,24,0,23,"11 (26,192); 12 (25,591); 10 (24,722); 13 (23,825); 14 (21,816)"
+FLAG_LAST_APPL_PER_CONTRACT,text,0,0.0,2,N,Y,"Y (228,586); N (1,129)"
+NFLAG_LAST_APPL_IN_DAY,bigint,0,0.0,2,0,1,"1 (228,942); 0 (773)"
+RATE_DOWN_PAYMENT,double precision,121197,52.76,41057,0,0.9301973849763618,"0 (51,330); 0.1089090909090909 (5,227); 0.2178181818181818 (881); 0.3267272727272727 (136); 0.5445454545454544 (99)"
+RATE_INTEREST_PRIMARY,double precision,228965,99.67,55,0.05912104726283578,0.7009095545732745,0.1891363481808909 (165); 0.14244021307945146 (129); 0.1607163096452454 (101); 0.19332993312932112 (77); 0.19690014734217387 (59)
+RATE_INTEREST_PRIVILEGED,double precision,228965,99.67,15,0.4244186046511628,0.8673361522198731,0.8350951374207188 (216); 0.6379492600422833 (142); 0.715644820295983 (135); 0.852536997885835 (101); 0.8673361522198731 (97)
+NAME_CASH_LOAN_PURPOSE,text,0,0.0,24,Building a house or an annex,XNA,"XAP (128,773); XNA (91,270); Repairs (3,242); Other (2,192); Urgent needs (1,156)"
+NAME_CONTRACT_STATUS,text,0,0.0,4,Approved,Unused offer,"Approved (144,093); Canceled (42,006); Refused (39,956); Unused offer (3,660)"
+DAYS_DECISION,bigint,0,0.0,2921,-2922,-2,-238 (375); -189 (374); -231 (372); -217 (363); -182 (359)
+NAME_PAYMENT_TYPE,text,0,0.0,4,Cashless from the account of the employer,XNA,"Cash through the bank (143,651); XNA (84,798); Non-cash from your account (1,124); Cashless from the account of the employer (142)"
+CODE_REJECT_REASON,text,0,0.0,9,CLIENT,XNA,"XAP (186,096); HC (23,534); LIMIT (7,930); SCO (5,407); CLIENT (3,660)"
+NAME_TYPE_SUITE,text,112826,49.12,7,Children,Unaccompanied,"Unaccompanied (69,231); Family (29,862); Spouse, partner (9,336); Children (4,406); Other_B (2,502)"
+NAME_CLIENT_TYPE,text,0,0.0,4,New,XNA,"Repeater (168,672); New (42,140); Refreshed (18,647); XNA (256)"
+NAME_GOODS_CATEGORY,text,0,0.0,27,Additional Service,XNA,"XNA (128,935); Mobile (31,560); Consumer Electronics (17,304); Computers (14,643); Audio/Video (13,980)"
+NAME_PORTFOLIO,text,0,0.0,5,Cards,XNA,"POS (96,869); Cash (63,089); XNA (49,825); Cards (19,861); Cars (71)"
+NAME_PRODUCT_TYPE,text,0,0.0,3,walk-in,x-sell,"XNA (146,765); x-sell (62,039); walk-in (20,911)"
+CHANNEL_TYPE,text,0,0.0,8,AP+ (Cash loan),Stone,"Credit and cash offices (96,699); Country-wide (68,823); Stone (29,921); Regional / Local (15,313); Contact center (9,670)"
+SELLERPLACE_AREA,bigint,0,0.0,1693,-1,4000000,"-1 (102,451); 0 (8,427); 50 (5,137); 30 (4,798); 20 (4,674)"
+NAME_SELLER_INDUSTRY,text,0,0.0,11,Auto technology,XNA,"XNA (115,764); Consumer electronics (55,868); Connectivity (38,701); Furniture (8,090); Construction (4,070)"
+CNT_PAYMENT,double precision,49825,21.69,38,0,84,"12 (44,661); 6 (26,514); 10 (20,184); 0 (19,861); 24 (18,866)"
+NAME_YIELD_GROUP,text,0,0.0,5,high,XNA,"XNA (69,686); middle (52,407); high (49,956); low_normal (44,725); low_action (12,941)"
+PRODUCT_COMBINATION,text,59,0.03,17,Card Street,POS other with interest,"Cash (37,853); POS household with interest (36,952); POS mobile with interest (30,977); Cash X-Sell: middle (19,069); Cash X-Sell: low (17,736)"
+DAYS_FIRST_DRAWING,double precision,90986,39.61,2265,-2921,365243,"365243 (129,988); -220 (24); -224 (24); -219 (23); -255 (23)"
+DAYS_FIRST_DUE,double precision,90986,39.61,2890,-2891,365243,"365243 (5,516); -208 (121); -240 (119); -337 (119); -333 (117)"
+DAYS_LAST_DUE_1ST_VERSION,double precision,90986,39.61,4519,-2801,365243,"365243 (12,874); 5 (118); 30 (113); 0 (109); -7 (108)"
+DAYS_LAST_DUE,double precision,90986,39.61,2830,-2869,365243,"365243 (29,454); -217 (106); -305 (103); -280 (102); -176 (100)"
+DAYS_TERMINATION,double precision,90986,39.61,2761,-2845,365243,"365243 (31,603); -107 (126); -240 (119); -233 (118); -150 (117)"
+NFLAG_INSURED_ON_APPROVAL,double precision,90986,39.61,2,0,1,"0 (93,227); 1 (45,502)"
